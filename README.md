@@ -1,8 +1,15 @@
 # sophos-api-device-migration
 
-Interaktives PowerShell-Skript zur Migration von Sophos-Central-Geräten
-(Server oder Clients) von einem Tenant auf einen anderen Tenant über die
-offizielle Sophos Central Endpoint-Migration-API.
+## Kurzbeschreibung
+
+Dieses PowerShell-Skript migriert Sophos-Central-Geräte (Server oder Clients)
+über die offizielle Sophos-API von einem Tenant auf einen anderen – komplett
+geführt per Dialog: Anmeldung wahlweise mit den API-Keys der beiden Tenants
+oder einem Partner-Login, Auswahl der Geräte einzeln über eine GUI-Liste oder
+alle auf einmal, danach automatischer Start der Migration mit laufender
+Status-Rückmeldung pro Gerät und einer Ergebnis-Zusammenfassung am Ende.
+Offline-Geräte werden serverseitig nachgezogen, sobald sie sich das nächste
+Mal bei Sophos Central melden.
 
 ## Ablauf
 
