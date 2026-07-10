@@ -8,17 +8,20 @@ offizielle Sophos Central Endpoint-Migration-API.
 
 Beim Start fragt das Skript nacheinander ab:
 
-1. **Anmeldung** – Sophos API Client-ID und Client-Secret
-   (idealerweise Partner- oder Organisations-Credentials, damit beide
-   Tenants mit einem Login erreichbar sind).
-2. **Quell- und Ziel-Tenant** – Auswahl per GUI-Liste (`Out-GridView`).
-3. **Was soll migriert werden?** – `[1] Server`, `[2] Clients`, `[3] Abbrechen`.
-4. **Umfang** – `[1] Alle` Geräte migrieren oder `[2] Einzeln auswählen`:
+1. **Anmeldeart wählen:**
+   - `[1] Tenant-API-Keys` (Standard-Variante): Es werden nacheinander die
+     API-Credentials (Client-ID / Client-Secret) des **Quell-Tenants** und des
+     **Ziel-Tenants** abgefragt. Ein Partner-Login ist nicht nötig.
+   - `[2] Partner-/Organisations-API-Key`: Ein einziger Login; Quell- und
+     Ziel-Tenant werden anschließend bequem aus einer GUI-Liste aller
+     Tenants ausgewählt.
+2. **Was soll migriert werden?** – `[1] Server`, `[2] Clients`, `[3] Abbrechen`.
+3. **Umfang** – `[1] Alle` Geräte migrieren oder `[2] Einzeln auswählen`:
    Es öffnet sich eine GUI-Liste aller Server/Clients des Quell-Tenants
    (Hostname, OS, letzter User, Health, zuletzt online) mit Mehrfachauswahl.
-5. **Sicherheitsabfrage** und Start der Migration
+4. **Sicherheitsabfrage** und Start der Migration
    (Zwei-Schritt-Handshake: Job im Ziel-Tenant anlegen, im Quell-Tenant bestätigen).
-6. **Status-Rückmeldung pro Gerät** – das Skript pollt den Migrationsstatus
+5. **Status-Rückmeldung pro Gerät** – das Skript pollt den Migrationsstatus
    und meldet je Gerät `erfolgreich migriert`, `fehlgeschlagen` oder den
    aktuellen Zwischenstatus, inkl. Zusammenfassung am Ende.
 
@@ -26,19 +29,29 @@ Beim Start fragt das Skript nacheinander ab:
 
 ```powershell
 .\Sophos-DeviceMigration.ps1
-# oder mit Credentials als Parameter:
-.\Sophos-DeviceMigration.ps1 -ClientId "xxxxxxxx-..." -ClientSecret "geheim"
 ```
+
+Alle Eingaben (API-Keys, Auswahl) werden interaktiv abgefragt;
+Client-Secrets werden dabei verdeckt eingegeben.
+
+## API-Keys erstellen
+
+- **Tenant-API-Key** (Variante 1, je Tenant einmal nötig):
+  *Sophos Central Admin → Globale Einstellungen → API-Anmeldeinformationen →
+  Anmeldeinformationen hinzufügen* (Rolle: mindestens „API – Superadmin"
+  für Migrationen).
+- **Partner-API-Key** (Variante 2, optional):
+  *Sophos Partner Dashboard → Einstellungen → API-Anmeldeinformationen*.
 
 ## Voraussetzungen
 
 - Windows PowerShell 5.1 oder PowerShell 7+
   (unter PS7 für die GUI-Auswahl das Modul `Microsoft.PowerShell.GraphicalTools`
   installieren; ohne GUI nutzt das Skript automatisch eine Konsolen-Auswahl).
-- Sophos Central API-Credentials mit Zugriff auf Quell- **und** Ziel-Tenant
-  (Partner: *Sophos Partner Dashboard → Einstellungen → API-Anmeldeinformationen*).
+- API-Credentials für Quell- **und** Ziel-Tenant (siehe oben) – entweder
+  zwei Tenant-Keys oder ein Partner-/Organisations-Key.
 - Quell- und Ziel-Tenant müssen in **derselben Datenregion** liegen
-  (Einschränkung der Sophos-Migration-API).
+  (Einschränkung der Sophos-Migration-API); das Skript prüft das automatisch.
 
 ## Hinweise
 

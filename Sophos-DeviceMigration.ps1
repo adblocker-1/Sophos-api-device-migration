@@ -5,38 +5,29 @@
 
 .DESCRIPTION
     Das Skript nutzt die offizielle Sophos Central Endpoint-Migration-API:
-      1. OAuth2-Login mit Partner- (oder Organisations-) API-Credentials
-      2. Auswahl von Quell- und Ziel-Tenant
-      3. Abfrage: Server oder Clients migrieren (oder abbrechen)
-      4. Abfrage: alle Geräte oder einzelne Geräte per GUI (Out-GridView) auswählen
-      5. Migration starten (Zwei-Schritt-Handshake: Ziel-Tenant -> Quell-Tenant)
-      6. Status-Polling mit Rückmeldung pro Gerät
+      1. Auswahl der Anmeldeart:
+           [1] Tenant-API-Keys - je ein API-Credential für Quell- und Ziel-Tenant
+           [2] Partner-/Organisations-API-Key - ein Login, Tenant-Auswahl per GUI
+      2. Abfrage: Server oder Clients migrieren (oder abbrechen)
+      3. Abfrage: alle Geräte oder einzelne Geräte per GUI (Out-GridView) auswählen
+      4. Migration starten (Zwei-Schritt-Handshake: Ziel-Tenant -> Quell-Tenant)
+      5. Status-Polling mit Rückmeldung pro Gerät
 
     Voraussetzungen:
-      - Sophos Central API-Credentials (Client-ID / Client-Secret), idealerweise
-        Partner- oder Organisations-Credentials, damit beide Tenants erreichbar sind.
-        (Sophos Central Admin/Partner -> Globale Einstellungen -> API-Token / Anmeldeinformationen)
+      - Sophos Central API-Credentials (Client-ID / Client-Secret):
+        entweder pro Tenant (Sophos Central Admin -> Globale Einstellungen ->
+        API-Anmeldeinformationen) oder als Partner-/Organisations-Credential.
       - Quell- und Ziel-Tenant müssen in derselben Datenregion liegen
         (Voraussetzung der Sophos-Migration-API).
       - Windows PowerShell 5.1 oder PowerShell 7+ (für Out-GridView unter PS7:
         Modul Microsoft.PowerShell.GraphicalTools; ohne GUI gibt es einen Konsolen-Fallback).
 
-.PARAMETER ClientId
-    Sophos Central API Client-ID (optional, sonst Abfrage beim Start).
-
-.PARAMETER ClientSecret
-    Sophos Central API Client-Secret (optional, sonst sichere Abfrage beim Start).
-
 .EXAMPLE
     .\Sophos-DeviceMigration.ps1
-    .\Sophos-DeviceMigration.ps1 -ClientId "xxxxxxxx-xxxx-..." -ClientSecret "geheim"
 #>
 
 [CmdletBinding()]
-param(
-    [string]$ClientId,
-    [string]$ClientSecret
-)
+param()
 
 $ErrorActionPreference = 'Stop'
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
@@ -49,6 +40,13 @@ function Write-Info    { param([string]$Text) Write-Host $Text -ForegroundColor 
 function Write-Ok      { param([string]$Text) Write-Host $Text -ForegroundColor Green }
 function Write-Warn2   { param([string]$Text) Write-Host $Text -ForegroundColor Yellow }
 function Write-Err     { param([string]$Text) Write-Host $Text -ForegroundColor Red }
+
+function Read-Secret {
+    param([string]$Prompt)
+    $secure = Read-Host $Prompt -AsSecureString
+    return [Runtime.InteropServices.Marshal]::PtrToStringAuto(
+        [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure))
+}
 
 function Get-SophosToken {
     param([string]$Id, [string]$Secret)
@@ -101,24 +99,50 @@ function Get-SophosTenants {
     return $tenants
 }
 
+function Connect-SophosTenant {
+    <#
+        Meldet sich mit einem Tenant-API-Key an und liefert den Tenant-Kontext
+        (Token, Tenant-ID, API-Host, Name) zurück.
+    #>
+    param([Parameter(Mandatory)][string]$Label)
+
+    Write-Host ""
+    Write-Info "--- Anmeldung $Label ---"
+    $id     = Read-Host "  Client-ID ($Label)"
+    $secret = Read-Secret "  Client-Secret ($Label)"
+
+    $token  = Get-SophosToken -Id $id -Secret $secret
+    $whoami = Get-SophosWhoAmI -Token $token
+
+    if ($whoami.idType -ne 'tenant') {
+        throw "Der angegebene API-Key für '$Label' ist kein Tenant-Key (Typ: $($whoami.idType)). Bitte einen API-Key des jeweiligen Tenants verwenden."
+    }
+
+    return [pscustomobject]@{
+        Token      = $token
+        TenantId   = $whoami.id
+        ApiHost    = $whoami.apiHosts.dataRegion
+        DataRegion = ''
+        Name       = $Label
+    }
+}
+
 function Get-SophosEndpoints {
     <# Listet Endpoints eines Tenants, gefiltert nach Typ (computer | server). #>
     param(
-        [string]$Token,
-        [string]$TenantId,
-        [string]$ApiHost,
+        [Parameter(Mandatory)]$Tenant,
         [ValidateSet('computer', 'server')][string]$Type
     )
 
     $endpoints = @()
     $nextKey = $null
     do {
-        $uri = "$ApiHost/endpoint/v1/endpoints?pageSize=500&type=$Type"
+        $uri = "$($Tenant.ApiHost)/endpoint/v1/endpoints?pageSize=500&type=$Type"
         if ($nextKey) { $uri += "&pageFromKey=$([uri]::EscapeDataString($nextKey))" }
 
         $resp = Invoke-RestMethod -Method Get -Uri $uri -Headers @{
-            Authorization = "Bearer $Token"
-            'X-Tenant-ID' = $TenantId
+            Authorization = "Bearer $($Tenant.Token)"
+            'X-Tenant-ID' = $Tenant.TenantId
         }
         $endpoints += $resp.items
         $nextKey = $resp.pages.nextKey
@@ -169,7 +193,7 @@ function Select-FromList {
 }
 
 # ============================================================================
-#  1) Anmeldung
+#  1) Anmeldeart wählen und anmelden
 # ============================================================================
 
 Write-Host ""
@@ -178,78 +202,99 @@ Write-Host "   Sophos Central - Geräte-Migration zwischen Tenants" -ForegroundC
 Write-Host "=====================================================" -ForegroundColor Cyan
 Write-Host ""
 
-if (-not $ClientId)     { $ClientId = Read-Host "Sophos API Client-ID" }
-if (-not $ClientSecret) {
-    $secure = Read-Host "Sophos API Client-Secret" -AsSecureString
-    $ClientSecret = [Runtime.InteropServices.Marshal]::PtrToStringAuto(
-        [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure))
-}
+Write-Host "Wie möchtest du dich anmelden?" -ForegroundColor Cyan
+Write-Host "  [1] Tenant-API-Keys (je ein API-Key für Quell- und Ziel-Tenant)"
+Write-Host "  [2] Partner-/Organisations-API-Key (ein Login, Tenant-Auswahl per Liste)"
+Write-Host "  [3] Abbrechen"
+$authChoice = Read-Host "Auswahl (1-3)"
 
-Write-Info "Hole Access-Token..."
-try {
-    $token = Get-SophosToken -Id $ClientId -Secret $ClientSecret
-} catch {
-    Write-Err "Anmeldung fehlgeschlagen: $($_.Exception.Message)"
-    exit 1
-}
-Write-Ok "Anmeldung erfolgreich."
-
-$whoami = Get-SophosWhoAmI -Token $token
-Write-Info "Angemeldet als: $($whoami.idType) ($($whoami.id))"
-
-# ============================================================================
-#  2) Quell- und Ziel-Tenant bestimmen
-# ============================================================================
-
-$srcTenant = $null
+$srcTenant = $null   # Kontext: Token, TenantId, ApiHost, Name
 $dstTenant = $null
 
-if ($whoami.idType -in @('partner', 'organization')) {
-    Write-Info "Lade Tenant-Liste..."
-    $allTenants = Get-SophosTenants -Token $token -IdType $whoami.idType -EntityId $whoami.id |
-        Where-Object { $_.apiHost } |
-        Sort-Object name |
-        Select-Object name, id, dataRegion, apiHost
+switch ($authChoice) {
 
-    if (-not $allTenants) { Write-Err "Keine Tenants gefunden."; exit 1 }
+    # ---- Variante 1: eigene API-Keys pro Tenant ----
+    '1' {
+        try {
+            $srcTenant = Connect-SophosTenant -Label "QUELL-Tenant (von dort werden Geräte migriert)"
+            Write-Ok "  Angemeldet am Quell-Tenant [$($srcTenant.TenantId)]"
 
-    $srcTenant = (Select-FromList -Items $allTenants -Title "QUELL-Tenant auswählen (von dort werden Geräte migriert)") | Select-Object -First 1
-    if (-not $srcTenant) { Write-Warn2 "Abgebrochen."; exit 0 }
+            $dstTenant = Connect-SophosTenant -Label "ZIEL-Tenant (dorthin werden Geräte migriert)"
+            Write-Ok "  Angemeldet am Ziel-Tenant [$($dstTenant.TenantId)]"
+        } catch {
+            Write-Err "Anmeldung fehlgeschlagen: $($_.Exception.Message)"
+            exit 1
+        }
 
-    $dstCandidates = $allTenants | Where-Object { $_.id -ne $srcTenant.id }
-    $dstTenant = (Select-FromList -Items $dstCandidates -Title "ZIEL-Tenant auswählen (dorthin werden Geräte migriert)") | Select-Object -First 1
-    if (-not $dstTenant) { Write-Warn2 "Abgebrochen."; exit 0 }
-}
-else {
-    # Tenant-Credentials: Quelle = eigener Tenant, Ziel muss manuell angegeben werden.
-    Write-Warn2 "Hinweis: Es wurden Tenant-Credentials verwendet. Für die Migration werden"
-    Write-Warn2 "zusätzlich die Daten des ZIEL-Tenants benötigt (ID und API-Host)."
-    $srcTenant = [pscustomobject]@{
-        name       = '(eigener Tenant)'
-        id         = $whoami.id
-        dataRegion = ''
-        apiHost    = $whoami.apiHosts.dataRegion
+        if ($srcTenant.TenantId -eq $dstTenant.TenantId) {
+            Write-Err "Quell- und Ziel-Tenant sind identisch - bitte unterschiedliche Tenants verwenden."
+            exit 1
+        }
+        $srcTenant.Name = "Quell-Tenant"
+        $dstTenant.Name = "Ziel-Tenant"
     }
-    $dstId   = Read-Host "Ziel-Tenant-ID (GUID)"
-    $dstHost = Read-Host "Ziel-Tenant API-Host (z.B. https://api-eu01.central.sophos.com)"
-    if ([string]::IsNullOrWhiteSpace($dstId) -or [string]::IsNullOrWhiteSpace($dstHost)) {
-        Write-Warn2 "Abgebrochen."; exit 0
+
+    # ---- Variante 2: Partner-/Organisations-Login mit Tenant-Auswahl ----
+    '2' {
+        $pId     = Read-Host "Partner-/Organisations Client-ID"
+        $pSecret = Read-Secret "Partner-/Organisations Client-Secret"
+
+        Write-Info "Hole Access-Token..."
+        try {
+            $pToken = Get-SophosToken -Id $pId -Secret $pSecret
+        } catch {
+            Write-Err "Anmeldung fehlgeschlagen: $($_.Exception.Message)"
+            exit 1
+        }
+
+        $whoami = Get-SophosWhoAmI -Token $pToken
+        if ($whoami.idType -notin @('partner', 'organization')) {
+            Write-Err "Der API-Key ist kein Partner-/Organisations-Key (Typ: $($whoami.idType))."
+            Write-Err "Für Tenant-API-Keys bitte das Skript neu starten und Variante [1] wählen."
+            exit 1
+        }
+        Write-Ok "Anmeldung erfolgreich ($($whoami.idType))."
+
+        Write-Info "Lade Tenant-Liste..."
+        $allTenants = Get-SophosTenants -Token $pToken -IdType $whoami.idType -EntityId $whoami.id |
+            Where-Object { $_.apiHost } |
+            Sort-Object name |
+            Select-Object name, id, dataRegion, apiHost
+
+        if (-not $allTenants) { Write-Err "Keine Tenants gefunden."; exit 1 }
+
+        $srcPick = (Select-FromList -Items $allTenants -Title "QUELL-Tenant auswählen (von dort werden Geräte migriert)") | Select-Object -First 1
+        if (-not $srcPick) { Write-Warn2 "Abgebrochen."; exit 0 }
+
+        $dstPick = (Select-FromList -Items ($allTenants | Where-Object { $_.id -ne $srcPick.id }) `
+            -Title "ZIEL-Tenant auswählen (dorthin werden Geräte migriert)") | Select-Object -First 1
+        if (-not $dstPick) { Write-Warn2 "Abgebrochen."; exit 0 }
+
+        if ($srcPick.dataRegion -and $dstPick.dataRegion -and $srcPick.dataRegion -ne $dstPick.dataRegion) {
+            Write-Err "Quell- und Ziel-Tenant liegen in unterschiedlichen Datenregionen ($($srcPick.dataRegion) / $($dstPick.dataRegion))."
+            Write-Err "Die Sophos-Migration-API unterstützt nur Migrationen innerhalb derselben Region."
+            exit 1
+        }
+
+        $srcTenant = [pscustomobject]@{ Token = $pToken; TenantId = $srcPick.id; ApiHost = $srcPick.apiHost; Name = $srcPick.name }
+        $dstTenant = [pscustomobject]@{ Token = $pToken; TenantId = $dstPick.id; ApiHost = $dstPick.apiHost; Name = $dstPick.name }
     }
-    $dstTenant = [pscustomobject]@{ name = '(Ziel-Tenant)'; id = $dstId.Trim(); dataRegion = ''; apiHost = $dstHost.Trim().TrimEnd('/') }
+
+    default { Write-Warn2 "Abgebrochen."; exit 0 }
 }
 
 Write-Host ""
-Write-Ok "Quelle: $($srcTenant.name)  [$($srcTenant.id)]"
-Write-Ok "Ziel:   $($dstTenant.name)  [$($dstTenant.id)]"
+Write-Ok "Quelle: $($srcTenant.Name)  [$($srcTenant.TenantId)]"
+Write-Ok "Ziel:   $($dstTenant.Name)  [$($dstTenant.TenantId)]"
 
-if ($srcTenant.dataRegion -and $dstTenant.dataRegion -and $srcTenant.dataRegion -ne $dstTenant.dataRegion) {
-    Write-Err "Quell- und Ziel-Tenant liegen in unterschiedlichen Datenregionen ($($srcTenant.dataRegion) / $($dstTenant.dataRegion))."
+if ($srcTenant.ApiHost -ne $dstTenant.ApiHost) {
+    Write-Err "Quell- und Ziel-Tenant liegen in unterschiedlichen Datenregionen ($($srcTenant.ApiHost) / $($dstTenant.ApiHost))."
     Write-Err "Die Sophos-Migration-API unterstützt nur Migrationen innerhalb derselben Region."
     exit 1
 }
 
 # ============================================================================
-#  3) Abfrage: Was soll migriert werden?
+#  2) Abfrage: Was soll migriert werden?
 # ============================================================================
 
 Write-Host ""
@@ -266,11 +311,11 @@ switch ($choice) {
 }
 
 # ============================================================================
-#  4) Geräte laden und auswählen (alle oder einzeln per GUI)
+#  3) Geräte laden und auswählen (alle oder einzeln per GUI)
 # ============================================================================
 
-Write-Info "`nLade $deviceLabel aus Quell-Tenant '$($srcTenant.name)'..."
-$devices = Get-SophosEndpoints -Token $token -TenantId $srcTenant.id -ApiHost $srcTenant.apiHost -Type $deviceType
+Write-Info "`nLade $deviceLabel aus Quell-Tenant '$($srcTenant.Name)'..."
+$devices = Get-SophosEndpoints -Tenant $srcTenant -Type $deviceType
 
 if (-not $devices -or $devices.Count -eq 0) {
     Write-Warn2 "Im Quell-Tenant wurden keine $deviceLabel gefunden."
@@ -301,7 +346,7 @@ switch ($scopeChoice) {
     '1' { $selectedDevices = @($deviceView) }
     '2' {
         $selectedDevices = Select-FromList -Items $deviceView -Multiple `
-            -Title "$deviceLabel im Tenant '$($srcTenant.name)' - zu migrierende Geräte markieren (Strg/Shift für Mehrfachauswahl)"
+            -Title "$deviceLabel im Tenant '$($srcTenant.Name)' - zu migrierende Geräte markieren (Strg/Shift für Mehrfachauswahl)"
     }
     default { Write-Warn2 "Abgebrochen."; exit 0 }
 }
@@ -316,7 +361,7 @@ Write-Info "Folgende $($selectedDevices.Count) Geräte werden migriert:"
 $selectedDevices | ForEach-Object { Write-Host "  - $($_.Hostname)" }
 
 Write-Host ""
-$confirm = Read-Host "Migration von '$($srcTenant.name)' nach '$($dstTenant.name)' jetzt starten? (j/n)"
+$confirm = Read-Host "Migration von '$($srcTenant.Name)' nach '$($dstTenant.Name)' jetzt starten? (j/n)"
 if ($confirm -notin @('j', 'J', 'ja', 'Ja', 'y', 'Y')) {
     Write-Warn2 "Abgebrochen."
     exit 0
@@ -325,15 +370,15 @@ if ($confirm -notin @('j', 'J', 'ja', 'Ja', 'y', 'Y')) {
 $endpointIds = @($selectedDevices | ForEach-Object { $_.Id })
 
 # ============================================================================
-#  5) Migration starten (Zwei-Schritt-Handshake)
+#  4) Migration starten (Zwei-Schritt-Handshake)
 # ============================================================================
 
 # Schritt 1: Migrations-Job im ZIEL-Tenant anlegen (liefert Job-ID + Token)
 Write-Info "`n[1/2] Erstelle Migrations-Job im Ziel-Tenant..."
-$createBody = @{ fromTenant = $srcTenant.id; endpoints = $endpointIds } | ConvertTo-Json -Depth 4
+$createBody = @{ fromTenant = $srcTenant.TenantId; endpoints = $endpointIds } | ConvertTo-Json -Depth 4
 try {
-    $job = Invoke-RestMethod -Method Post -Uri "$($dstTenant.apiHost)/endpoint/v1/migrations" `
-        -Headers @{ Authorization = "Bearer $token"; 'X-Tenant-ID' = $dstTenant.id } `
+    $job = Invoke-RestMethod -Method Post -Uri "$($dstTenant.ApiHost)/endpoint/v1/migrations" `
+        -Headers @{ Authorization = "Bearer $($dstTenant.Token)"; 'X-Tenant-ID' = $dstTenant.TenantId } `
         -ContentType 'application/json' -Body $createBody
 } catch {
     Write-Err "Fehler beim Anlegen des Migrations-Jobs im Ziel-Tenant: $($_.Exception.Message)"
@@ -346,8 +391,8 @@ Write-Ok "Migrations-Job erstellt (ID: $($job.id))."
 Write-Info "[2/2] Starte Migration im Quell-Tenant..."
 $startBody = @{ token = $job.token; endpoints = $endpointIds } | ConvertTo-Json -Depth 4
 try {
-    $start = Invoke-RestMethod -Method Put -Uri "$($srcTenant.apiHost)/endpoint/v1/migrations/$($job.id)" `
-        -Headers @{ Authorization = "Bearer $token"; 'X-Tenant-ID' = $srcTenant.id } `
+    $start = Invoke-RestMethod -Method Put -Uri "$($srcTenant.ApiHost)/endpoint/v1/migrations/$($job.id)" `
+        -Headers @{ Authorization = "Bearer $($srcTenant.Token)"; 'X-Tenant-ID' = $srcTenant.TenantId } `
         -ContentType 'application/json' -Body $startBody
 } catch {
     Write-Err "Fehler beim Starten der Migration im Quell-Tenant: $($_.Exception.Message)"
@@ -357,7 +402,7 @@ try {
 Write-Ok "Migration gestartet. Die Geräte holen den Auftrag bei ihrem nächsten Check-in ab."
 
 # ============================================================================
-#  6) Status-Rückmeldung pro Gerät (Polling)
+#  5) Status-Rückmeldung pro Gerät (Polling)
 # ============================================================================
 
 $hostnameById = @{}
@@ -379,8 +424,8 @@ while ($true) {
     Start-Sleep -Seconds 5
     try {
         $statusResp = Invoke-RestMethod -Method Get `
-            -Uri "$($srcTenant.apiHost)/endpoint/v1/migrations/$($job.id)/endpoints?pageSize=500" `
-            -Headers @{ Authorization = "Bearer $token"; 'X-Tenant-ID' = $srcTenant.id }
+            -Uri "$($srcTenant.ApiHost)/endpoint/v1/migrations/$($job.id)/endpoints?pageSize=500" `
+            -Headers @{ Authorization = "Bearer $($srcTenant.Token)"; 'X-Tenant-ID' = $srcTenant.TenantId }
     } catch {
         Write-Warn2 "Statusabfrage fehlgeschlagen: $($_.Exception.Message) - neuer Versuch..."
         Start-Sleep -Seconds $pollIntervalSec
