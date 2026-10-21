@@ -1,24 +1,24 @@
 ﻿<#
 .SYNOPSIS
-    Grafische Oberfläche (WPF) für die Migration von Sophos Central Geräten
-    (Server oder Clients) von einem Tenant auf einen anderen Tenant.
+    Graphical user interface (WPF) for migrating Sophos Central devices
+    (servers or clients) from one tenant to another tenant.
 
 .DESCRIPTION
-    Geführter Assistent in vier Schritten:
-      1. Anmeldung - Tenant-API-Keys (Quell- und Ziel-Tenant) oder
-         Partner-/Organisations-API-Key
-      2. Tenant-Auswahl (nur bei Partner-/Organisations-Login)
-      3. Geräte auswählen - Server oder Clients, mit Suche und Mehrfachauswahl
-      4. Migration starten und Live-Status pro Gerät verfolgen,
-         inkl. Protokoll und CSV-Export des Ergebnisses
+    Guided wizard in four steps:
+      1. Sign-in - tenant API keys (source and target tenant) or
+         partner/organization API key
+      2. Tenant selection (partner/organization sign-in only)
+      3. Select devices - servers or clients, with search and multi-selection
+      4. Start the migration and follow the live status per device,
+         including a log and CSV export of the result
 
-    Alle API-Aufrufe laufen im Hintergrund, die Oberfläche bleibt bedienbar.
-    Access-Tokens werden bei Bedarf automatisch erneuert.
+    All API calls run in the background, so the window stays responsive.
+    Access tokens are renewed automatically when needed.
 
-    Voraussetzungen:
-      - Windows mit Windows PowerShell 5.1 oder PowerShell 7+
-      - Sophos Central API-Credentials (siehe README)
-      - Quell- und Ziel-Tenant in derselben Datenregion
+    Requirements:
+      - Windows with Windows PowerShell 5.1 or PowerShell 7+
+      - Sophos Central API credentials (see README)
+      - Source and target tenant in the same data region
 
 .EXAMPLE
     .\Sophos-DeviceMigration-GUI.ps1
@@ -31,11 +31,11 @@
 param()
 
 if ([Environment]::OSVersion.Platform -ne 'Win32NT') {
-    Write-Error 'Die grafische Oberfläche benötigt Windows (WPF). Unter anderen Systemen bitte Sophos-DeviceMigration.ps1 verwenden.'
+    Write-Error 'The graphical user interface requires Windows (WPF). On other systems please use Sophos-DeviceMigration.ps1.'
     exit 1
 }
 
-# WPF benötigt einen STA-Thread - ggf. neu starten
+# WPF requires an STA thread - restart if necessary
 if ([Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') {
     $exe = (Get-Process -Id $PID).Path
     Start-Process -FilePath $exe -ArgumentList @('-NoProfile', '-STA', '-File', "`"$PSCommandPath`"")
@@ -49,7 +49,7 @@ try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::S
 Add-Type -AssemblyName PresentationFramework, PresentationCore, WindowsBase
 
 # ============================================================================
-#  Datenmodelle für die Oberfläche (mit Änderungsbenachrichtigung)
+#  Data models for the UI (with change notification)
 # ============================================================================
 
 if (-not ('SophosDeviceItem' -as [type])) {
@@ -105,7 +105,7 @@ public class SophosTenantItem
 }
 
 # ============================================================================
-#  Sophos-API-Funktionen (laufen auch in den Hintergrund-Runspaces)
+#  Sophos API functions (also run inside the background runspaces)
 # ============================================================================
 
 function Invoke-SophosApi {
@@ -138,7 +138,7 @@ function Invoke-SophosApi {
 }
 
 function New-SophosSession {
-    <# Holt ein Access-Token und merkt sich die Credentials für eine spätere Erneuerung. #>
+    <# Requests an access token and keeps the credentials for later renewal. #>
     param([Parameter(Mandatory)][string]$Id, [Parameter(Mandatory)][string]$Secret)
 
     $session = [pscustomobject]@{ ClientId = $Id; Secret = $Secret; Token = $null; Expires = [datetime]::MinValue }
@@ -147,7 +147,7 @@ function New-SophosSession {
 }
 
 function Update-SophosSession {
-    <# Erneuert das Token, wenn es in weniger als 5 Minuten abläuft. #>
+    <# Renews the token when it expires in less than 5 minutes. #>
     param([Parameter(Mandatory)]$Session, [switch]$Force)
 
     if (-not $Force -and (Get-Date) -lt $Session.Expires.AddMinutes(-5)) { return }
@@ -172,7 +172,7 @@ function Get-SophosWhoAmI {
 }
 
 function Get-SophosTenants {
-    <# Listet alle Tenants eines Partners bzw. einer Organisation auf (mit Paginierung). #>
+    <# Lists all tenants of a partner or organization (with pagination). #>
     param(
         [Parameter(Mandatory)]$Session,
         [ValidateSet('partner', 'organization')][string]$IdType,
@@ -209,7 +209,7 @@ function Get-SophosTenantHeaders {
 }
 
 function Get-SophosEndpoints {
-    <# Listet Endpoints eines Tenants, gefiltert nach Typ (computer | server). #>
+    <# Lists the endpoints of a tenant, filtered by type (computer | server). #>
     param(
         [Parameter(Mandatory)]$Tenant,
         [ValidateSet('computer', 'server')][string]$Type
@@ -229,7 +229,7 @@ function Get-SophosEndpoints {
 }
 
 function Get-SophosMigrationStatus {
-    <# Liefert den Migrationsstatus je Gerät eines Migrations-Jobs. #>
+    <# Returns the migration status per device of a migration job. #>
     param([Parameter(Mandatory)]$Tenant, [Parameter(Mandatory)][string]$JobId)
 
     $items = @()
@@ -252,7 +252,7 @@ function Get-RegionFromApiHost {
 }
 
 # ============================================================================
-#  Hintergrund-Ausführung (hält die Oberfläche reaktionsfähig)
+#  Background execution (keeps the UI responsive)
 # ============================================================================
 
 $script:Iss = [System.Management.Automation.Runspaces.InitialSessionState]::CreateDefault()
@@ -267,9 +267,9 @@ $script:BgTasks = New-Object System.Collections.ArrayList
 
 function Start-BgTask {
     <#
-        Führt $Work in einem eigenen Runspace aus. $OnSuccess erhält das erste
-        Ausgabeobjekt, $OnError den Fehlertext - beide laufen im UI-Thread.
-        Mit -BusyText wird währenddessen das Warte-Overlay angezeigt.
+        Runs $Work in its own runspace. $OnSuccess receives the first output
+        object, $OnError the error text - both run on the UI thread.
+        With -BusyText the busy overlay is shown in the meantime.
     #>
     param(
         [Parameter(Mandatory)][scriptblock]$Work,
@@ -329,20 +329,20 @@ $script:BgTimer.Add_Tick({
             if ($err) { if ($task.OnError) { & $task.OnError $err } }
             elseif ($task.OnSuccess) { & $task.OnSuccess $result }
         } catch {
-            Show-Error "Unerwarteter Fehler:`n$($_.Exception.Message)"
+            Show-Error "Unexpected error:`n$($_.Exception.Message)"
         }
     }
     if ($script:BgTasks.Count -eq 0) { $script:BgTimer.Stop() }
 })
 
 # ============================================================================
-#  Oberfläche (XAML)
+#  User interface (XAML)
 # ============================================================================
 
 [xml]$xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Sophos Central – Geräte-Migration" Width="1200" Height="800" MinWidth="1000" MinHeight="680"
+        Title="Sophos Central – Device Migration" Width="1200" Height="800" MinWidth="1000" MinHeight="680"
         WindowStartupLocation="CenterScreen" Background="#F3F5F9" FontFamily="Segoe UI" FontSize="13"
         Foreground="#1B2430" UseLayoutRounding="True" SnapsToDevicePixels="True">
   <Window.Resources>
@@ -428,7 +428,7 @@ $script:BgTimer.Add_Tick({
       </Style.Triggers>
     </Style>
 
-    <!-- Eingabefelder -->
+    <!-- Input fields -->
     <Style TargetType="TextBox">
       <Setter Property="Padding" Value="9,7"/>
       <Setter Property="Background" Value="White"/>
@@ -480,7 +480,7 @@ $script:BgTimer.Add_Tick({
       </Setter>
     </Style>
 
-    <!-- Auswahl-Karten (Anmeldeart) -->
+    <!-- Option cards (sign-in method) -->
     <Style x:Key="OptionCard" TargetType="RadioButton">
       <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="Template">
@@ -515,7 +515,7 @@ $script:BgTimer.Add_Tick({
       </Setter>
     </Style>
 
-    <!-- Segment-Umschalter (Server / Clients) -->
+    <!-- Segmented switch (servers / clients) -->
     <Style x:Key="Segment" TargetType="RadioButton">
       <Setter Property="Cursor" Value="Hand"/>
       <Setter Property="FontWeight" Value="SemiBold"/>
@@ -540,7 +540,7 @@ $script:BgTimer.Add_Tick({
       </Setter>
     </Style>
 
-    <!-- Listen -->
+    <!-- Lists -->
     <Style TargetType="ListBox">
       <Setter Property="BorderThickness" Value="0"/>
       <Setter Property="Background" Value="Transparent"/>
@@ -622,7 +622,7 @@ $script:BgTimer.Add_Tick({
       <Setter Property="BorderThickness" Value="0"/>
     </Style>
 
-    <!-- Status-Badge für Migrationsstatus -->
+    <!-- Status badge for the migration status -->
     <DataTemplate x:Key="StatusBadge">
       <Border x:Name="Badge" CornerRadius="10" Padding="10,3" HorizontalAlignment="Left" Background="#FFF4DB">
         <StackPanel Orientation="Horizontal">
@@ -649,7 +649,7 @@ $script:BgTimer.Add_Tick({
       </DataTemplate.Triggers>
     </DataTemplate>
 
-    <!-- Health-Anzeige -->
+    <!-- Health indicator -->
     <DataTemplate x:Key="HealthCell">
       <StackPanel Orientation="Horizontal">
         <Ellipse x:Name="Dot" Width="8" Height="8" Fill="#A0AAB8" Margin="0,0,8,0" VerticalAlignment="Center"/>
@@ -658,15 +658,15 @@ $script:BgTimer.Add_Tick({
       <DataTemplate.Triggers>
         <DataTrigger Binding="{Binding Health}" Value="good">
           <Setter TargetName="Dot" Property="Fill" Value="#1E9E5A"/>
-          <Setter TargetName="Txt" Property="Text" Value="Gut"/>
+          <Setter TargetName="Txt" Property="Text" Value="Good"/>
         </DataTrigger>
         <DataTrigger Binding="{Binding Health}" Value="suspicious">
           <Setter TargetName="Dot" Property="Fill" Value="#E0A100"/>
-          <Setter TargetName="Txt" Property="Text" Value="Verdächtig"/>
+          <Setter TargetName="Txt" Property="Text" Value="Suspicious"/>
         </DataTrigger>
         <DataTrigger Binding="{Binding Health}" Value="bad">
           <Setter TargetName="Dot" Property="Fill" Value="#D64545"/>
-          <Setter TargetName="Txt" Property="Text" Value="Kritisch"/>
+          <Setter TargetName="Txt" Property="Text" Value="Bad"/>
         </DataTrigger>
       </DataTemplate.Triggers>
     </DataTemplate>
@@ -688,7 +688,7 @@ $script:BgTimer.Add_Tick({
       <RowDefinition Height="66"/>
     </Grid.RowDefinitions>
 
-    <!-- ===== Kopfzeile ===== -->
+    <!-- ===== Header ===== -->
     <Border Grid.Row="0" Background="{StaticResource Navy}" Padding="24,0">
       <DockPanel>
         <Border DockPanel.Dock="Left" Width="36" Height="36" CornerRadius="9" Background="{StaticResource Primary}" VerticalAlignment="Center">
@@ -696,30 +696,30 @@ $script:BgTimer.Add_Tick({
                 Data="M12,1 L3,5 L3,11 C3,16.5 6.8,21.7 12,23 C17.2,21.7 21,16.5 21,11 L21,5 Z M10,17 L6,13 L7.4,11.6 L10,14.2 L16.6,7.6 L18,9 Z"/>
         </Border>
         <StackPanel DockPanel.Dock="Left" VerticalAlignment="Center" Margin="12,0,0,0">
-          <TextBlock Text="Sophos Central · Geräte-Migration" Foreground="White" FontSize="17" FontWeight="SemiBold"/>
-          <TextBlock x:Name="HeaderSub" Text="Server und Clients zwischen Tenants verschieben" Foreground="#9FB3CC" FontSize="12"/>
+          <TextBlock Text="Sophos Central · Device Migration" Foreground="White" FontSize="17" FontWeight="SemiBold"/>
+          <TextBlock x:Name="HeaderSub" Text="Move servers and clients between tenants" Foreground="#9FB3CC" FontSize="12"/>
         </StackPanel>
         <TextBlock x:Name="HeaderContext" HorizontalAlignment="Right" VerticalAlignment="Center" Foreground="#C9D6E6"
                    TextTrimming="CharacterEllipsis" Margin="20,0,0,0"/>
       </DockPanel>
     </Border>
 
-    <!-- ===== Inhalt ===== -->
+    <!-- ===== Content ===== -->
     <Grid Grid.Row="1">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="240"/>
         <ColumnDefinition Width="*"/>
       </Grid.ColumnDefinitions>
 
-      <!-- Schritte -->
+      <!-- Steps -->
       <Border Grid.Column="0" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="0,0,1,0" Padding="22,28,18,22">
         <DockPanel>
           <Border DockPanel.Dock="Bottom" Background="#F3F7FC" CornerRadius="8" Padding="12,10">
             <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="#3E5573"
-                       Text="Offline-Geräte werden migriert, sobald sie sich das nächste Mal bei Sophos Central melden. Richtlinien und Gruppen werden nicht übernommen."/>
+                       Text="Offline devices are migrated the next time they check in with Sophos Central. Policies and groups are not transferred."/>
           </Border>
           <StackPanel>
-            <TextBlock Text="SCHRITTE" Style="{StaticResource Overline}" Margin="0,0,0,18"/>
+            <TextBlock Text="STEPS" Style="{StaticResource Overline}" Margin="0,0,0,18"/>
 
             <Grid Margin="0,0,0,20">
               <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
@@ -727,8 +727,8 @@ $script:BgTimer.Add_Tick({
                 <TextBlock x:Name="Step1Num" Text="1" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold"/>
               </Border>
               <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
-                <TextBlock x:Name="Step1Title" Text="Anmeldung" FontWeight="SemiBold"/>
-                <TextBlock x:Name="Step1Sub" Text="API-Zugang" FontSize="11" Foreground="{StaticResource Muted}"/>
+                <TextBlock x:Name="Step1Title" Text="Sign-in" FontWeight="SemiBold"/>
+                <TextBlock x:Name="Step1Sub" Text="API access" FontSize="11" Foreground="{StaticResource Muted}"/>
               </StackPanel>
             </Grid>
             <Grid Margin="0,0,0,20">
@@ -738,7 +738,7 @@ $script:BgTimer.Add_Tick({
               </Border>
               <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
                 <TextBlock x:Name="Step2Title" Text="Tenants" FontWeight="SemiBold"/>
-                <TextBlock x:Name="Step2Sub" Text="Quelle und Ziel" FontSize="11" Foreground="{StaticResource Muted}"/>
+                <TextBlock x:Name="Step2Sub" Text="Source and target" FontSize="11" Foreground="{StaticResource Muted}"/>
               </StackPanel>
             </Grid>
             <Grid Margin="0,0,0,20">
@@ -747,8 +747,8 @@ $script:BgTimer.Add_Tick({
                 <TextBlock x:Name="Step3Num" Text="3" HorizontalAlignment="Center" VerticalAlignment="Center" FontWeight="SemiBold"/>
               </Border>
               <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
-                <TextBlock x:Name="Step3Title" Text="Geräte" FontWeight="SemiBold"/>
-                <TextBlock x:Name="Step3Sub" Text="Server oder Clients" FontSize="11" Foreground="{StaticResource Muted}"/>
+                <TextBlock x:Name="Step3Title" Text="Devices" FontWeight="SemiBold"/>
+                <TextBlock x:Name="Step3Sub" Text="Servers or clients" FontSize="11" Foreground="{StaticResource Muted}"/>
               </StackPanel>
             </Grid>
             <Grid Margin="0,0,0,20">
@@ -758,7 +758,7 @@ $script:BgTimer.Add_Tick({
               </Border>
               <StackPanel Grid.Column="1" Margin="12,0,0,0" VerticalAlignment="Center">
                 <TextBlock x:Name="Step4Title" Text="Migration" FontWeight="SemiBold"/>
-                <TextBlock x:Name="Step4Sub" Text="Start und Status" FontSize="11" Foreground="{StaticResource Muted}"/>
+                <TextBlock x:Name="Step4Sub" Text="Start and status" FontSize="11" Foreground="{StaticResource Muted}"/>
               </StackPanel>
             </Grid>
           </StackPanel>
@@ -767,24 +767,24 @@ $script:BgTimer.Add_Tick({
 
       <Grid Grid.Column="1" Margin="32,26,32,20">
 
-        <!-- ===== Seite 1: Anmeldung ===== -->
+        <!-- ===== Page 1: Sign-in ===== -->
         <ScrollViewer x:Name="Page1" VerticalScrollBarVisibility="Auto">
           <StackPanel MaxWidth="900" HorizontalAlignment="Left">
-            <TextBlock Text="Anmeldung" Style="{StaticResource H1}"/>
-            <TextBlock Text="Wie möchtest du dich bei Sophos Central anmelden?" Style="{StaticResource Sub}"/>
+            <TextBlock Text="Sign-in" Style="{StaticResource H1}"/>
+            <TextBlock Text="How do you want to sign in to Sophos Central?" Style="{StaticResource Sub}"/>
 
             <UniformGrid Columns="2" Margin="0,0,0,20">
               <RadioButton x:Name="RbTenantKeys" GroupName="Auth" Style="{StaticResource OptionCard}" IsChecked="True" Margin="0,0,8,0">
                 <StackPanel>
-                  <TextBlock Text="Tenant-API-Keys" FontWeight="SemiBold" FontSize="14"/>
-                  <TextBlock Text="Je ein API-Key für Quell- und Ziel-Tenant. Standard-Variante, kein Partner-Zugang nötig."
+                  <TextBlock Text="Tenant API keys" FontWeight="SemiBold" FontSize="14"/>
+                  <TextBlock Text="One API key each for the source and target tenant. Default option, no partner access required."
                              TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,4,0,0"/>
                 </StackPanel>
               </RadioButton>
               <RadioButton x:Name="RbPartner" GroupName="Auth" Style="{StaticResource OptionCard}" Margin="8,0,0,0">
                 <StackPanel>
-                  <TextBlock Text="Partner-/Organisations-API-Key" FontWeight="SemiBold" FontSize="14"/>
-                  <TextBlock Text="Ein Login für alle Tenants – Quell- und Ziel-Tenant werden anschließend aus einer Liste gewählt."
+                  <TextBlock Text="Partner/organization API key" FontWeight="SemiBold" FontSize="14"/>
+                  <TextBlock Text="A single sign-in for all tenants – source and target tenant are then picked from a list."
                              TextWrapping="Wrap" Foreground="{StaticResource Muted}" Margin="0,4,0,0"/>
                 </StackPanel>
               </RadioButton>
@@ -799,14 +799,14 @@ $script:BgTimer.Add_Tick({
                 <StackPanel>
                   <StackPanel Orientation="Horizontal">
                     <Border Background="#E8F0FC" CornerRadius="4" Padding="7,2" VerticalAlignment="Center">
-                      <TextBlock Text="QUELLE" FontSize="10.5" FontWeight="Bold" Foreground="{StaticResource Primary}"/>
+                      <TextBlock Text="SOURCE" FontSize="10.5" FontWeight="Bold" Foreground="{StaticResource Primary}"/>
                     </Border>
-                    <TextBlock Text="Quell-Tenant" FontSize="15" FontWeight="SemiBold" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="Source tenant" FontSize="15" FontWeight="SemiBold" Margin="10,0,0,0" VerticalAlignment="Center"/>
                   </StackPanel>
-                  <TextBlock Text="Von hier werden die Geräte migriert." Foreground="{StaticResource Muted}" Margin="0,6,0,0"/>
-                  <TextBlock Text="Client-ID" Style="{StaticResource FieldLabel}"/>
+                  <TextBlock Text="Devices are migrated from here." Foreground="{StaticResource Muted}" Margin="0,6,0,0"/>
+                  <TextBlock Text="Client ID" Style="{StaticResource FieldLabel}"/>
                   <TextBox x:Name="TxtSrcId"/>
-                  <TextBlock Text="Client-Secret" Style="{StaticResource FieldLabel}"/>
+                  <TextBlock Text="Client secret" Style="{StaticResource FieldLabel}"/>
                   <PasswordBox x:Name="PwdSrcSecret"/>
                 </StackPanel>
               </Border>
@@ -814,14 +814,14 @@ $script:BgTimer.Add_Tick({
                 <StackPanel>
                   <StackPanel Orientation="Horizontal">
                     <Border Background="#E3F5EB" CornerRadius="4" Padding="7,2" VerticalAlignment="Center">
-                      <TextBlock Text="ZIEL" FontSize="10.5" FontWeight="Bold" Foreground="#157347"/>
+                      <TextBlock Text="TARGET" FontSize="10.5" FontWeight="Bold" Foreground="#157347"/>
                     </Border>
-                    <TextBlock Text="Ziel-Tenant" FontSize="15" FontWeight="SemiBold" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="Target tenant" FontSize="15" FontWeight="SemiBold" Margin="10,0,0,0" VerticalAlignment="Center"/>
                   </StackPanel>
-                  <TextBlock Text="Hierhin werden die Geräte migriert." Foreground="{StaticResource Muted}" Margin="0,6,0,0"/>
-                  <TextBlock Text="Client-ID" Style="{StaticResource FieldLabel}"/>
+                  <TextBlock Text="Devices are migrated to here." Foreground="{StaticResource Muted}" Margin="0,6,0,0"/>
+                  <TextBlock Text="Client ID" Style="{StaticResource FieldLabel}"/>
                   <TextBox x:Name="TxtDstId"/>
-                  <TextBlock Text="Client-Secret" Style="{StaticResource FieldLabel}"/>
+                  <TextBlock Text="Client secret" Style="{StaticResource FieldLabel}"/>
                   <PasswordBox x:Name="PwdDstSecret"/>
                 </StackPanel>
               </Border>
@@ -829,25 +829,25 @@ $script:BgTimer.Add_Tick({
 
             <Border x:Name="PanelPartner" Style="{StaticResource Card}" Visibility="Collapsed" MaxWidth="460" HorizontalAlignment="Left">
               <StackPanel>
-                <TextBlock Text="Partner-/Organisations-Zugang" FontSize="15" FontWeight="SemiBold"/>
-                <TextBlock Text="Nach der Anmeldung wählst du Quell- und Ziel-Tenant aus." Foreground="{StaticResource Muted}" Margin="0,6,0,0"/>
-                <TextBlock Text="Client-ID" Style="{StaticResource FieldLabel}"/>
+                <TextBlock Text="Partner/organization access" FontSize="15" FontWeight="SemiBold"/>
+                <TextBlock Text="After signing in you pick the source and target tenant." Foreground="{StaticResource Muted}" Margin="0,6,0,0"/>
+                <TextBlock Text="Client ID" Style="{StaticResource FieldLabel}"/>
                 <TextBox x:Name="TxtPartnerId"/>
-                <TextBlock Text="Client-Secret" Style="{StaticResource FieldLabel}"/>
+                <TextBlock Text="Client secret" Style="{StaticResource FieldLabel}"/>
                 <PasswordBox x:Name="PwdPartnerSecret"/>
               </StackPanel>
             </Border>
 
             <Border Background="#EEF4FD" CornerRadius="8" Padding="14,11" Margin="0,20,0,0">
               <TextBlock TextWrapping="Wrap" Foreground="#24456E" FontSize="12">
-                <Run FontWeight="SemiBold" Text="Tipp: "/>
-                <Run Text="Tenant-API-Keys erstellst du in Sophos Central Admin → Globale Einstellungen → API-Anmeldeinformationen (Rolle mindestens „API – Superadmin“). Partner-Keys findest du im Partner Dashboard → Einstellungen → API-Anmeldeinformationen."/>
+                <Run FontWeight="SemiBold" Text="Tip: "/>
+                <Run Text="Create tenant API keys in Sophos Central Admin → Global Settings → API Credentials Management (role at least Service Principal Super Admin). Partner keys are created in the Partner Dashboard → Settings → API Credentials."/>
               </TextBlock>
             </Border>
           </StackPanel>
         </ScrollViewer>
 
-        <!-- ===== Seite 2: Tenant-Auswahl ===== -->
+        <!-- ===== Page 2: Tenant selection ===== -->
         <Grid x:Name="Page2" Visibility="Collapsed">
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -855,8 +855,8 @@ $script:BgTimer.Add_Tick({
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
           </Grid.RowDefinitions>
-          <TextBlock Text="Tenants auswählen" Style="{StaticResource H1}"/>
-          <TextBlock Grid.Row="1" Text="Wähle den Tenant, aus dem die Geräte kommen, und den Tenant, in den sie migriert werden sollen. Beide müssen in derselben Datenregion liegen."
+          <TextBlock Text="Select tenants" Style="{StaticResource H1}"/>
+          <TextBlock Grid.Row="1" Text="Pick the tenant the devices come from and the tenant they should be migrated to. Both must be in the same data region."
                      Style="{StaticResource Sub}"/>
           <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
@@ -869,11 +869,11 @@ $script:BgTimer.Add_Tick({
                 <StackPanel DockPanel.Dock="Top">
                   <StackPanel Orientation="Horizontal">
                     <Border Background="#E8F0FC" CornerRadius="4" Padding="7,2" VerticalAlignment="Center">
-                      <TextBlock Text="QUELLE" FontSize="10.5" FontWeight="Bold" Foreground="{StaticResource Primary}"/>
+                      <TextBlock Text="SOURCE" FontSize="10.5" FontWeight="Bold" Foreground="{StaticResource Primary}"/>
                     </Border>
-                    <TextBlock Text="Quell-Tenant" FontSize="15" FontWeight="SemiBold" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="Source tenant" FontSize="15" FontWeight="SemiBold" Margin="10,0,0,0" VerticalAlignment="Center"/>
                   </StackPanel>
-                  <TextBox x:Name="TxtSrcTenantSearch" Tag="Tenant suchen…" Margin="0,12,0,10"/>
+                  <TextBox x:Name="TxtSrcTenantSearch" Tag="Search tenants…" Margin="0,12,0,10"/>
                 </StackPanel>
                 <ListBox x:Name="LstSrcTenants" ItemTemplate="{StaticResource TenantItem}"/>
               </DockPanel>
@@ -885,11 +885,11 @@ $script:BgTimer.Add_Tick({
                 <StackPanel DockPanel.Dock="Top">
                   <StackPanel Orientation="Horizontal">
                     <Border Background="#E3F5EB" CornerRadius="4" Padding="7,2" VerticalAlignment="Center">
-                      <TextBlock Text="ZIEL" FontSize="10.5" FontWeight="Bold" Foreground="#157347"/>
+                      <TextBlock Text="TARGET" FontSize="10.5" FontWeight="Bold" Foreground="#157347"/>
                     </Border>
-                    <TextBlock Text="Ziel-Tenant" FontSize="15" FontWeight="SemiBold" Margin="10,0,0,0" VerticalAlignment="Center"/>
+                    <TextBlock Text="Target tenant" FontSize="15" FontWeight="SemiBold" Margin="10,0,0,0" VerticalAlignment="Center"/>
                   </StackPanel>
-                  <TextBox x:Name="TxtDstTenantSearch" Tag="Tenant suchen…" Margin="0,12,0,10"/>
+                  <TextBox x:Name="TxtDstTenantSearch" Tag="Search tenants…" Margin="0,12,0,10"/>
                 </StackPanel>
                 <ListBox x:Name="LstDstTenants" ItemTemplate="{StaticResource TenantItem}"/>
               </DockPanel>
@@ -900,7 +900,7 @@ $script:BgTimer.Add_Tick({
           </Border>
         </Grid>
 
-        <!-- ===== Seite 3: Geräte ===== -->
+        <!-- ===== Page 3: Devices ===== -->
         <Grid x:Name="Page3" Visibility="Collapsed">
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -909,22 +909,22 @@ $script:BgTimer.Add_Tick({
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
           </Grid.RowDefinitions>
-          <TextBlock Text="Geräte auswählen" Style="{StaticResource H1}"/>
-          <TextBlock Grid.Row="1" Text="Wähle den Gerätetyp und markiere die Geräte, die migriert werden sollen."
+          <TextBlock Text="Select devices" Style="{StaticResource H1}"/>
+          <TextBlock Grid.Row="1" Text="Choose the device type and tick the devices you want to migrate."
                      Style="{StaticResource Sub}"/>
 
           <DockPanel Grid.Row="2" Margin="0,0,0,12" LastChildFill="False">
             <Border DockPanel.Dock="Left" Background="#E9EEF5" CornerRadius="8" Padding="3">
               <StackPanel Orientation="Horizontal">
-                <RadioButton x:Name="RbServer" GroupName="DevType" Style="{StaticResource Segment}" Content="Server"/>
+                <RadioButton x:Name="RbServer" GroupName="DevType" Style="{StaticResource Segment}" Content="Servers"/>
                 <RadioButton x:Name="RbClients" GroupName="DevType" Style="{StaticResource Segment}" Content="Clients"/>
               </StackPanel>
             </Border>
             <TextBox x:Name="TxtDeviceSearch" DockPanel.Dock="Left" Width="300" Margin="12,0,0,0"
-                     Tag="Hostname, Betriebssystem oder Benutzer suchen…"/>
-            <Button x:Name="BtnReload" DockPanel.Dock="Right" Style="{StaticResource BtnBase}" Content="↻  Neu laden" Margin="8,0,0,0"/>
-            <Button x:Name="BtnSelectNone" DockPanel.Dock="Right" Style="{StaticResource BtnBase}" Content="Auswahl aufheben" Margin="8,0,0,0"/>
-            <Button x:Name="BtnSelectAll" DockPanel.Dock="Right" Style="{StaticResource BtnBase}" Content="Alle markieren"/>
+                     Tag="Search hostname, OS or user…"/>
+            <Button x:Name="BtnReload" DockPanel.Dock="Right" Style="{StaticResource BtnBase}" Content="↻  Reload" Margin="8,0,0,0"/>
+            <Button x:Name="BtnSelectNone" DockPanel.Dock="Right" Style="{StaticResource BtnBase}" Content="Clear selection" Margin="8,0,0,0"/>
+            <Button x:Name="BtnSelectAll" DockPanel.Dock="Right" Style="{StaticResource BtnBase}" Content="Select all"/>
           </DockPanel>
 
           <Border Grid.Row="3" Style="{StaticResource Card}" Padding="0" ClipToBounds="True">
@@ -940,29 +940,29 @@ $script:BgTimer.Add_Tick({
                     </DataGridTemplateColumn.CellTemplate>
                   </DataGridTemplateColumn>
                   <DataGridTextColumn Header="Hostname" Binding="{Binding Hostname}" Width="1.3*" MinWidth="150" FontWeight="SemiBold"/>
-                  <DataGridTextColumn Header="Betriebssystem" Binding="{Binding OS}" Width="1.3*" MinWidth="140"/>
-                  <DataGridTextColumn Header="Letzter Benutzer" Binding="{Binding LastUser}" Width="*" MinWidth="120"/>
+                  <DataGridTextColumn Header="Operating system" Binding="{Binding OS}" Width="1.3*" MinWidth="140"/>
+                  <DataGridTextColumn Header="Last user" Binding="{Binding LastUser}" Width="*" MinWidth="120"/>
                   <DataGridTemplateColumn Header="Health" Width="120" CellTemplate="{StaticResource HealthCell}" SortMemberPath="Health"/>
-                  <DataGridTextColumn Header="Zuletzt online" Binding="{Binding LastSeen, StringFormat='dd.MM.yyyy HH:mm'}" Width="140"/>
+                  <DataGridTextColumn Header="Last seen" Binding="{Binding LastSeen, StringFormat='yyyy-MM-dd HH:mm'}" Width="140"/>
                 </DataGrid.Columns>
               </DataGrid>
               <StackPanel x:Name="DevicesEmpty" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False">
                 <Path Data="M3,4 L21,4 L21,16 L3,16 Z M8,20 L16,20 M12,16 L12,20" Stroke="#B4BFCD" StrokeThickness="1.6"
                       Width="44" Height="40" Stretch="Uniform" HorizontalAlignment="Center"/>
-                <TextBlock x:Name="DevicesEmptyText" Text="Bitte oben wählen: Server oder Clients" Foreground="{StaticResource Muted}"
+                <TextBlock x:Name="DevicesEmptyText" Text="Please choose above: servers or clients" Foreground="{StaticResource Muted}"
                            FontSize="14" Margin="0,12,0,0" HorizontalAlignment="Center"/>
               </StackPanel>
             </Grid>
           </Border>
 
           <DockPanel Grid.Row="4" Margin="2,10,2,0">
-            <TextBlock x:Name="TxtSelectionInfo" DockPanel.Dock="Left" FontWeight="SemiBold" Text="0 von 0 Geräten ausgewählt"/>
+            <TextBlock x:Name="TxtSelectionInfo" DockPanel.Dock="Left" FontWeight="SemiBold" Text="0 of 0 devices selected"/>
             <TextBlock HorizontalAlignment="Right" Foreground="{StaticResource Muted}" FontSize="12"
-                       Text="Tipp: Mehrere Zeilen mit Strg/Shift markieren und Leertaste drücken, um sie an- oder abzuwählen."/>
+                       Text="Tip: highlight several rows with Ctrl/Shift and press Space to tick or untick them."/>
           </DockPanel>
         </Grid>
 
-        <!-- ===== Seite 4: Migration ===== -->
+        <!-- ===== Page 4: Migration ===== -->
         <Grid x:Name="Page4" Visibility="Collapsed">
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
@@ -973,9 +973,9 @@ $script:BgTimer.Add_Tick({
           </Grid.RowDefinitions>
           <TextBlock Text="Migration" Style="{StaticResource H1}"/>
           <TextBlock x:Name="TxtMigrateSub" Grid.Row="1" Style="{StaticResource Sub}"
-                     Text="Prüfe die Zusammenfassung und starte die Migration."/>
+                     Text="Review the summary and start the migration."/>
 
-          <!-- Zusammenfassung -->
+          <!-- Summary -->
           <Border Grid.Row="2" Style="{StaticResource Card}" Padding="20,16">
             <Grid>
               <Grid.ColumnDefinitions>
@@ -986,32 +986,32 @@ $script:BgTimer.Add_Tick({
                 <ColumnDefinition Width="Auto"/>
               </Grid.ColumnDefinitions>
               <StackPanel>
-                <TextBlock Text="QUELLE" Style="{StaticResource Overline}"/>
+                <TextBlock Text="SOURCE" Style="{StaticResource Overline}"/>
                 <TextBlock x:Name="TxtSumSrc" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
                 <TextBlock x:Name="TxtSumSrcId" FontSize="11" Foreground="{StaticResource Muted}" TextTrimming="CharacterEllipsis"/>
               </StackPanel>
               <Path Grid.Column="1" Data="M0,8 L26,8 M19,1 L26,8 L19,15" Stroke="{StaticResource Primary}" StrokeThickness="2.2"
                     StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" VerticalAlignment="Center" Margin="20,0"/>
               <StackPanel Grid.Column="2">
-                <TextBlock Text="ZIEL" Style="{StaticResource Overline}"/>
+                <TextBlock Text="TARGET" Style="{StaticResource Overline}"/>
                 <TextBlock x:Name="TxtSumDst" FontSize="16" FontWeight="SemiBold" Margin="0,4,0,0" TextTrimming="CharacterEllipsis"/>
                 <TextBlock x:Name="TxtSumDstId" FontSize="11" Foreground="{StaticResource Muted}" TextTrimming="CharacterEllipsis"/>
               </StackPanel>
               <Border Grid.Column="3" Width="1" Background="{StaticResource Line}" Margin="24,0"/>
               <StackPanel Grid.Column="4" MinWidth="110">
-                <TextBlock Text="GERÄTE" Style="{StaticResource Overline}"/>
+                <TextBlock Text="DEVICES" Style="{StaticResource Overline}"/>
                 <TextBlock x:Name="TxtSumCount" FontSize="26" FontWeight="SemiBold" Foreground="{StaticResource Primary}"/>
                 <TextBlock x:Name="TxtSumType" FontSize="11" Foreground="{StaticResource Muted}"/>
               </StackPanel>
             </Grid>
           </Border>
 
-          <!-- Hinweis vor dem Start / Fortschritt nach dem Start -->
+          <!-- Notice before start / progress after start -->
           <Border x:Name="PanelPreStart" Grid.Row="3" Background="#FFF8E6" BorderBrush="#F2D589" BorderThickness="1"
                   CornerRadius="8" Padding="14,11" Margin="0,14,0,0">
             <TextBlock TextWrapping="Wrap" Foreground="#6B4A00">
-              <Run FontWeight="SemiBold" Text="Bitte beachten: "/>
-              <Run Text="Die Geräte werden aus dem Quell-Tenant entfernt und im Ziel-Tenant mit Standardkonfiguration angelegt – Richtlinien und Gruppen werden nicht übernommen. Offline-Geräte werden migriert, sobald sie sich das nächste Mal melden."/>
+              <Run FontWeight="SemiBold" Text="Please note: "/>
+              <Run Text="The devices are removed from the source tenant and created in the target tenant with the default configuration – policies and groups are not transferred. Offline devices are migrated the next time they check in."/>
             </TextBlock>
           </Border>
 
@@ -1019,45 +1019,45 @@ $script:BgTimer.Add_Tick({
             <UniformGrid Columns="4">
               <Border Style="{StaticResource Card}" Padding="16,12" Margin="0,0,8,0">
                 <StackPanel>
-                  <TextBlock Text="ERFOLGREICH" Style="{StaticResource Overline}"/>
+                  <TextBlock Text="SUCCEEDED" Style="{StaticResource Overline}"/>
                   <TextBlock x:Name="KpiOk" Text="0" FontSize="26" FontWeight="SemiBold" Foreground="{StaticResource Success}"/>
                 </StackPanel>
               </Border>
               <Border Style="{StaticResource Card}" Padding="16,12" Margin="4,0,4,0">
                 <StackPanel>
-                  <TextBlock Text="FEHLGESCHLAGEN" Style="{StaticResource Overline}"/>
+                  <TextBlock Text="FAILED" Style="{StaticResource Overline}"/>
                   <TextBlock x:Name="KpiFailed" Text="0" FontSize="26" FontWeight="SemiBold" Foreground="{StaticResource Danger}"/>
                 </StackPanel>
               </Border>
               <Border Style="{StaticResource Card}" Padding="16,12" Margin="8,0,4,0">
                 <StackPanel>
-                  <TextBlock Text="AUSSTEHEND" Style="{StaticResource Overline}"/>
+                  <TextBlock Text="PENDING" Style="{StaticResource Overline}"/>
                   <TextBlock x:Name="KpiOpen" Text="0" FontSize="26" FontWeight="SemiBold" Foreground="{StaticResource Warning}"/>
                 </StackPanel>
               </Border>
               <Border Style="{StaticResource Card}" Padding="16,12" Margin="8,0,0,0">
                 <StackPanel>
-                  <TextBlock Text="FORTSCHRITT" Style="{StaticResource Overline}"/>
-                  <TextBlock x:Name="TxtProgress" Text="0 von 0 abgeschlossen" FontWeight="SemiBold" Margin="0,8,0,8"/>
+                  <TextBlock Text="PROGRESS" Style="{StaticResource Overline}"/>
+                  <TextBlock x:Name="TxtProgress" Text="0 of 0 finished" FontWeight="SemiBold" Margin="0,8,0,8"/>
                   <ProgressBar x:Name="PrgMigration" Minimum="0" Maximum="1" Value="0"/>
+                  <TextBlock x:Name="TxtPollInfo" Foreground="{StaticResource Muted}" FontSize="11" Margin="0,6,0,0" TextTrimming="CharacterEllipsis"/>
                 </StackPanel>
               </Border>
             </UniformGrid>
             <DockPanel Margin="0,12,0,0">
               <StackPanel DockPanel.Dock="Left" Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="Job-ID" Style="{StaticResource Overline}" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <TextBox x:Name="TxtJobId" IsReadOnly="True" Width="300" FontFamily="Consolas" Padding="8,5"/>
-                <TextBlock x:Name="TxtPollInfo" Foreground="{StaticResource Muted}" VerticalAlignment="Center" Margin="14,0,0,0"/>
+                <TextBlock Text="JOB ID" Style="{StaticResource Overline}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                <TextBox x:Name="TxtJobId" IsReadOnly="True" Width="290" FontFamily="Consolas" Padding="8,5"/>
               </StackPanel>
               <StackPanel HorizontalAlignment="Right" Orientation="Horizontal">
-                <Button x:Name="BtnRefreshStatus" Style="{StaticResource BtnBase}" Content="↻  Status jetzt abfragen"/>
-                <Button x:Name="BtnStopPolling" Style="{StaticResource BtnBase}" Content="Abfrage beenden" Margin="8,0,0,0"/>
-                <Button x:Name="BtnExport" Style="{StaticResource BtnBase}" Content="CSV exportieren" Margin="8,0,0,0"/>
+                <Button x:Name="BtnRefreshStatus" Style="{StaticResource BtnBase}" Content="↻  Check status now"/>
+                <Button x:Name="BtnStopPolling" Style="{StaticResource BtnBase}" Content="Stop polling" Margin="8,0,0,0"/>
+                <Button x:Name="BtnExport" Style="{StaticResource BtnBase}" Content="Export CSV" Margin="8,0,0,0"/>
               </StackPanel>
             </DockPanel>
           </StackPanel>
 
-          <!-- Geräteliste und Protokoll -->
+          <!-- Device list and log -->
           <Grid Grid.Row="4" Margin="0,14,0,0">
             <Grid.ColumnDefinitions>
               <ColumnDefinition Width="*"/>
@@ -1066,15 +1066,15 @@ $script:BgTimer.Add_Tick({
             <Border Style="{StaticResource Card}" Padding="0" ClipToBounds="True">
               <DataGrid x:Name="GridMigrate">
                 <DataGrid.Columns>
-                  <DataGridTextColumn Header="Hostname" Binding="{Binding Hostname}" Width="*" MinWidth="150" FontWeight="SemiBold"/>
-                  <DataGridTextColumn Header="Betriebssystem" Binding="{Binding OS}" Width="*" MinWidth="130"/>
-                  <DataGridTemplateColumn Header="Status" Width="250" CellTemplate="{StaticResource StatusBadge}" SortMemberPath="StatusText"/>
+                  <DataGridTextColumn Header="Hostname" Binding="{Binding Hostname}" Width="*" MinWidth="130" FontWeight="SemiBold"/>
+                  <DataGridTextColumn Header="Operating system" Binding="{Binding OS}" Width="*" MinWidth="110"/>
+                  <DataGridTemplateColumn Header="Status" Width="280" CellTemplate="{StaticResource StatusBadge}" SortMemberPath="StatusText"/>
                 </DataGrid.Columns>
               </DataGrid>
             </Border>
             <Border x:Name="LogCard" Grid.Column="1" Style="{StaticResource Card}" Padding="14" Margin="14,0,0,0" Visibility="Collapsed">
               <DockPanel>
-                <TextBlock DockPanel.Dock="Top" Text="PROTOKOLL" Style="{StaticResource Overline}" Margin="0,0,0,8"/>
+                <TextBlock DockPanel.Dock="Top" Text="LOG" Style="{StaticResource Overline}" Margin="0,0,0,8"/>
                 <TextBox x:Name="TxtLog" IsReadOnly="True" TextWrapping="Wrap" FontFamily="Consolas" FontSize="11.5"
                          VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" BorderThickness="0" Padding="0" Background="#FAFBFD"/>
               </DockPanel>
@@ -1084,27 +1084,27 @@ $script:BgTimer.Add_Tick({
       </Grid>
     </Grid>
 
-    <!-- ===== Fußzeile ===== -->
+    <!-- ===== Footer ===== -->
     <Border Grid.Row="2" Background="White" BorderBrush="{StaticResource Line}" BorderThickness="0,1,0,0" Padding="24,0">
       <DockPanel>
         <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
-          <Button x:Name="BtnBack" Style="{StaticResource BtnBase}" Content="←  Zurück" Margin="0,0,10,0" MinWidth="110"/>
-          <Button x:Name="BtnNext" Style="{StaticResource BtnPrimary}" Content="Weiter  →" MinWidth="170"/>
+          <Button x:Name="BtnBack" Style="{StaticResource BtnBase}" Content="←  Back" Margin="0,0,10,0" MinWidth="110"/>
+          <Button x:Name="BtnNext" Style="{StaticResource BtnPrimary}" Content="Next  →" MinWidth="170"/>
         </StackPanel>
         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
           <Ellipse x:Name="StatusDot" Width="8" Height="8" Fill="#A0AAB8" Margin="0,0,10,0" VerticalAlignment="Center"/>
           <TextBlock x:Name="TxtStatus" Foreground="{StaticResource Muted}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"
-                     Text="Bereit."/>
+                     Text="Ready."/>
         </StackPanel>
       </DockPanel>
     </Border>
 
-    <!-- ===== Warte-Overlay ===== -->
+    <!-- ===== Busy overlay ===== -->
     <Grid x:Name="Overlay" Grid.RowSpan="3" Background="#A6F3F5F9" Visibility="Collapsed">
       <Border Style="{StaticResource Card}" HorizontalAlignment="Center" VerticalAlignment="Center" Width="380" Padding="24,20">
         <StackPanel>
-          <TextBlock x:Name="OverlayText" Text="Bitte warten…" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap"/>
-          <TextBlock Text="Kommunikation mit Sophos Central läuft." Foreground="{StaticResource Muted}" Margin="0,4,0,0"/>
+          <TextBlock x:Name="OverlayText" Text="Please wait…" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap"/>
+          <TextBlock Text="Talking to Sophos Central." Foreground="{StaticResource Muted}" Margin="0,4,0,0"/>
           <ProgressBar IsIndeterminate="True" Height="4" Margin="0,16,0,0"/>
         </StackPanel>
       </Border>
@@ -1116,8 +1116,8 @@ $script:BgTimer.Add_Tick({
 try {
     $window = [Windows.Markup.XamlReader]::Load((New-Object System.Xml.XmlNodeReader $xaml))
 } catch {
-    # Ohne sichtbare Konsole (Start-GUI.cmd) wäre der Fehler sonst unsichtbar
-    [void][System.Windows.MessageBox]::Show("Die Oberfläche konnte nicht geladen werden:`n$($_.Exception.Message)", 'Sophos Geräte-Migration', 'OK', 'Error')
+    # Without a visible console (Start-GUI.cmd) the error would otherwise go unnoticed
+    [void][System.Windows.MessageBox]::Show("The user interface could not be loaded:`n$($_.Exception.Message)", 'Sophos Device Migration', 'OK', 'Error')
     exit 1
 }
 $ui = @{}
@@ -1127,15 +1127,15 @@ foreach ($node in $xaml.SelectNodes("//*[@*[local-name()='Name']]")) {
 }
 
 # ============================================================================
-#  Zustand und Datenquellen
+#  State and data sources
 # ============================================================================
 
 $script:State = @{
     Page        = 1
     Mode        = 'tenant'     # tenant | partner
-    Src         = $null        # Tenant-Kontext: Session, TenantId, ApiHost, Region, Name
+    Src         = $null        # tenant context: Session, TenantId, ApiHost, Region, Name
     Dst         = $null
-    Partner     = $null        # Session + IdType bei Partner-Login
+    Partner     = $null        # session + IdType for partner sign-in
     DeviceType  = $null        # server | computer
     LoadedKey   = $null
     Bulk        = $false
@@ -1188,7 +1188,7 @@ $script:DstTenantView.Filter = {
 }
 
 # ============================================================================
-#  UI-Hilfsfunktionen
+#  UI helper functions
 # ============================================================================
 
 function New-Brush { param([string]$Hex) return (New-Object System.Windows.Media.BrushConverter).ConvertFromString($Hex) }
@@ -1207,13 +1207,13 @@ function Set-Status {
 function Show-Error {
     param([string]$Text)
     Set-Status ($Text -split "`n")[0] 'error'
-    [void][System.Windows.MessageBox]::Show($window, $Text, 'Sophos Geräte-Migration', 'OK', 'Error')
+    [void][System.Windows.MessageBox]::Show($window, $Text, 'Sophos Device Migration', 'OK', 'Error')
 }
 
 function Show-Warning {
     param([string]$Text)
     Set-Status $Text 'warn'
-    [void][System.Windows.MessageBox]::Show($window, $Text, 'Sophos Geräte-Migration', 'OK', 'Warning')
+    [void][System.Windows.MessageBox]::Show($window, $Text, 'Sophos Device Migration', 'OK', 'Warning')
 }
 
 function Write-Log {
@@ -1222,17 +1222,19 @@ function Write-Log {
     $ui.TxtLog.ScrollToEnd()
 }
 
-function Get-DeviceLabel { if ($script:State.DeviceType -eq 'server') { 'Server' } else { 'Clients' } }
+function Get-DeviceLabel { if ($script:State.DeviceType -eq 'server') { 'servers' } else { 'clients' } }
+
+function ConvertTo-TitleCase { param([string]$Text) return (Get-Culture).TextInfo.ToTitleCase($Text) }
 
 function ConvertTo-StatusText {
     param([string]$Status)
     switch ($Status) {
-        'succeeded' { 'Erfolgreich migriert' }
-        'failed'    { 'Fehlgeschlagen' }
-        'pending'   { 'Ausstehend – wartet auf Check-in' }
-        'ready'     { 'Bereit' }
-        'started'   { 'Gestartet' }
-        default     { if ($Status) { $Status } else { 'Unbekannt' } }
+        'succeeded' { 'Migrated successfully' }
+        'failed'    { 'Failed' }
+        'pending'   { 'Pending – waiting for check-in' }
+        'ready'     { 'Ready' }
+        'started'   { 'Started' }
+        default     { if ($Status) { $Status } else { 'Unknown' } }
     }
 }
 
@@ -1256,9 +1258,9 @@ function Update-Steps {
             $circle.Background = $idleBrush; $num.Text = "$i"; $num.Foreground = $mutedBrush; $title.Foreground = $mutedBrush
         }
     }
-    $ui.Step2Sub.Text = if ($script:State.Mode -eq 'tenant' -and $page -gt 1) { 'automatisch (Tenant-Keys)' } else { 'Quelle und Ziel' }
-    $ui.Step3Sub.Text = if ($script:State.DeviceType) { Get-DeviceLabel } else { 'Server oder Clients' }
-    $ui.Step4Sub.Text = if ($script:State.Polling) { 'läuft…' } elseif ($script:State.Started) { 'abgeschlossen' } else { 'Start und Status' }
+    $ui.Step2Sub.Text = if ($script:State.Mode -eq 'tenant' -and $page -gt 1) { 'automatic (tenant keys)' } else { 'Source and target' }
+    $ui.Step3Sub.Text = if ($script:State.DeviceType) { ConvertTo-TitleCase (Get-DeviceLabel) } else { 'Servers or clients' }
+    $ui.Step4Sub.Text = if ($script:State.Polling) { 'running…' } elseif ($script:State.Started) { 'finished' } else { 'Start and status' }
 }
 
 function Update-Footer {
@@ -1266,12 +1268,12 @@ function Update-Footer {
     $ui.BtnBack.Visibility = 'Visible'
     $ui.BtnNext.IsEnabled  = $true
     switch ($s.Page) {
-        1 { $ui.BtnBack.Visibility = 'Collapsed'; $ui.BtnNext.Content = 'Anmelden  →' }
-        2 { $ui.BtnNext.Content = 'Weiter  →'; $ui.BtnNext.IsEnabled = Test-TenantSelection }
-        3 { $ui.BtnNext.Content = 'Weiter  →'; $ui.BtnNext.IsEnabled = ((Get-SelectedDevices).Count -gt 0) }
+        1 { $ui.BtnBack.Visibility = 'Collapsed'; $ui.BtnNext.Content = 'Sign in  →' }
+        2 { $ui.BtnNext.Content = 'Next  →'; $ui.BtnNext.IsEnabled = Test-TenantSelection }
+        3 { $ui.BtnNext.Content = 'Next  →'; $ui.BtnNext.IsEnabled = ((Get-SelectedDevices).Count -gt 0) }
         4 {
-            if ($s.Started) { $ui.BtnBack.Visibility = 'Collapsed'; $ui.BtnNext.Content = 'Schließen' }
-            else            { $ui.BtnNext.Content = 'Migration starten' }
+            if ($s.Started) { $ui.BtnBack.Visibility = 'Collapsed'; $ui.BtnNext.Content = 'Close' }
+            else            { $ui.BtnNext.Content = 'Start migration' }
         }
     }
 }
@@ -1290,7 +1292,7 @@ function Update-HeaderContext {
 }
 
 # ============================================================================
-#  Schritt 1: Anmeldung
+#  Step 1: Sign-in
 # ============================================================================
 
 function Update-AuthPanels {
@@ -1306,42 +1308,42 @@ function Invoke-Login {
             DstId = $ui.TxtDstId.Text.Trim(); DstSecret = $ui.PwdDstSecret.Password
         }
         if (-not $args1.SrcId -or -not $args1.SrcSecret -or -not $args1.DstId -or -not $args1.DstSecret) {
-            Show-Warning 'Bitte Client-ID und Client-Secret für Quell- und Ziel-Tenant eingeben.'
+            Show-Warning 'Please enter the client ID and client secret for both the source and the target tenant.'
             return
         }
 
-        Start-BgTask -BusyText 'Anmeldung an Quell- und Ziel-Tenant…' -Arguments $args1 -Work {
+        Start-BgTask -BusyText 'Signing in to source and target tenant…' -Arguments $args1 -Work {
             param($SrcId, $SrcSecret, $DstId, $DstSecret)
             $result = @{}
             foreach ($side in @(
-                    @{ Key = 'Src'; Id = $SrcId; Secret = $SrcSecret; Label = 'Quell-Tenant' },
-                    @{ Key = 'Dst'; Id = $DstId; Secret = $DstSecret; Label = 'Ziel-Tenant' })) {
+                    @{ Key = 'Src'; Id = $SrcId; Secret = $SrcSecret; Label = 'source tenant'; Name = 'Source tenant' },
+                    @{ Key = 'Dst'; Id = $DstId; Secret = $DstSecret; Label = 'target tenant'; Name = 'Target tenant' })) {
                 try {
                     $session = New-SophosSession -Id $side.Id -Secret $side.Secret
                     $who = Get-SophosWhoAmI -Session $session
                 } catch {
-                    throw "Anmeldung am $($side.Label) fehlgeschlagen: $($_.Exception.Message)"
+                    throw "Sign-in to the $($side.Label) failed: $($_.Exception.Message)"
                 }
                 if ($who.idType -ne 'tenant') {
-                    throw "Der API-Key für den $($side.Label) ist kein Tenant-Key (Typ: $($who.idType)). Für Partner-/Organisations-Keys bitte die zweite Anmeldeart wählen."
+                    throw "The API key for the $($side.Label) is not a tenant key (type: $($who.idType)). For partner/organization keys please choose the second sign-in method."
                 }
                 $result[$side.Key] = [pscustomobject]@{
                     Session  = $session
                     TenantId = $who.id
                     ApiHost  = $who.apiHosts.dataRegion
                     Region   = Get-RegionFromApiHost $who.apiHosts.dataRegion
-                    Name     = $side.Label
+                    Name     = $side.Name
                 }
             }
             [pscustomobject]$result
         } -OnSuccess {
             param($r)
             if ($r.Src.TenantId -eq $r.Dst.TenantId) {
-                Show-Error 'Quell- und Ziel-Tenant sind identisch – bitte die API-Keys zweier unterschiedlicher Tenants verwenden.'
+                Show-Error 'Source and target tenant are identical – please use the API keys of two different tenants.'
                 return
             }
             if ($r.Src.ApiHost -ne $r.Dst.ApiHost) {
-                Show-Error "Quell- und Ziel-Tenant liegen in unterschiedlichen Datenregionen ($($r.Src.Region) / $($r.Dst.Region)).`nDie Sophos-Migration-API unterstützt nur Migrationen innerhalb derselben Region."
+                Show-Error "Source and target tenant are in different data regions ($($r.Src.Region) / $($r.Dst.Region)).`nThe Sophos migration API only supports migrations within the same region."
                 return
             }
             $script:State.Mode = 'tenant'
@@ -1349,7 +1351,7 @@ function Invoke-Login {
             $script:State.Dst  = $r.Dst
             $script:State.LoadedKey = $null
             Update-HeaderContext
-            Set-Status "Angemeldet – Quelle [$($r.Src.TenantId)], Ziel [$($r.Dst.TenantId)], Region $($r.Src.Region)." 'ok'
+            Set-Status "Signed in – source [$($r.Src.TenantId)], target [$($r.Dst.TenantId)], region $($r.Src.Region)." 'ok'
             Show-DevicesPage
         } -OnError {
             param($e)
@@ -1358,27 +1360,27 @@ function Invoke-Login {
     } else {
         $args1 = @{ Id = $ui.TxtPartnerId.Text.Trim(); Secret = $ui.PwdPartnerSecret.Password }
         if (-not $args1.Id -or -not $args1.Secret) {
-            Show-Warning 'Bitte Client-ID und Client-Secret des Partner-/Organisations-Keys eingeben.'
+            Show-Warning 'Please enter the client ID and client secret of the partner/organization key.'
             return
         }
 
-        Start-BgTask -BusyText 'Anmeldung und Laden der Tenant-Liste…' -Arguments $args1 -Work {
+        Start-BgTask -BusyText 'Signing in and loading the tenant list…' -Arguments $args1 -Work {
             param($Id, $Secret)
             try {
                 $session = New-SophosSession -Id $Id -Secret $Secret
                 $who = Get-SophosWhoAmI -Session $session
             } catch {
-                throw "Anmeldung fehlgeschlagen: $($_.Exception.Message)"
+                throw "Sign-in failed: $($_.Exception.Message)"
             }
             if ($who.idType -notin @('partner', 'organization')) {
-                throw "Der API-Key ist kein Partner-/Organisations-Key (Typ: $($who.idType)). Für Tenant-API-Keys bitte die erste Anmeldeart wählen."
+                throw "The API key is not a partner/organization key (type: $($who.idType)). For tenant API keys please choose the first sign-in method."
             }
             $tenants = Get-SophosTenants -Session $session -IdType $who.idType -EntityId $who.id |
                 Where-Object { $_.apiHost } | Sort-Object name
             [pscustomobject]@{ Session = $session; IdType = $who.idType; Tenants = @($tenants) }
         } -OnSuccess {
             param($r)
-            if (-not $r.Tenants -or $r.Tenants.Count -eq 0) { Show-Error 'Es wurden keine Tenants gefunden.'; return }
+            if (-not $r.Tenants -or $r.Tenants.Count -eq 0) { Show-Error 'No tenants were found.'; return }
 
             $script:State.Mode    = 'partner'
             $script:State.Partner = $r
@@ -1390,7 +1392,7 @@ function Invoke-Login {
                     $list.Add($item)
                 }
             }
-            Set-Status "Angemeldet ($($r.IdType)) – $($r.Tenants.Count) Tenants gefunden." 'ok'
+            Set-Status "Signed in ($($r.IdType)) – $($r.Tenants.Count) tenants found." 'ok'
             Show-Page 2
             Update-TenantWarning
         } -OnError {
@@ -1401,16 +1403,16 @@ function Invoke-Login {
 }
 
 # ============================================================================
-#  Schritt 2: Tenant-Auswahl (Partner-Login)
+#  Step 2: Tenant selection (partner sign-in)
 # ============================================================================
 
 function Get-TenantProblem {
     $src = $ui.LstSrcTenants.SelectedItem
     $dst = $ui.LstDstTenants.SelectedItem
     if (-not $src -or -not $dst) { return $null }
-    if ($src.Id -eq $dst.Id) { return 'Quell- und Ziel-Tenant sind identisch – bitte zwei unterschiedliche Tenants wählen.' }
+    if ($src.Id -eq $dst.Id) { return 'Source and target tenant are identical – please pick two different tenants.' }
     if (($src.DataRegion -and $dst.DataRegion -and $src.DataRegion -ne $dst.DataRegion) -or $src.ApiHost -ne $dst.ApiHost) {
-        return "Die Tenants liegen in unterschiedlichen Datenregionen ($($src.DataRegion) / $($dst.DataRegion)). Die Sophos-Migration-API unterstützt nur Migrationen innerhalb derselben Region."
+        return "The tenants are in different data regions ($($src.DataRegion) / $($dst.DataRegion)). The Sophos migration API only supports migrations within the same region."
     }
     return $null
 }
@@ -1442,7 +1444,7 @@ function Confirm-Tenants {
 }
 
 # ============================================================================
-#  Schritt 3: Geräte
+#  Step 3: Devices
 # ============================================================================
 
 function Get-SelectedDevices {
@@ -1455,7 +1457,7 @@ function Update-SelectionInfo {
     if ($script:State.Bulk) { return }
     $total = $script:Devices.Count
     $sel = (Get-SelectedDevices).Count
-    $ui.TxtSelectionInfo.Text = "$sel von $total $(if ($script:State.DeviceType) { Get-DeviceLabel } else { 'Geräten' }) ausgewählt"
+    $ui.TxtSelectionInfo.Text = "$sel of $total $(if ($script:State.DeviceType) { Get-DeviceLabel } else { 'devices' }) selected"
 
     $visible = 0
     foreach ($d in $script:DeviceView) { $visible++; break }
@@ -1464,9 +1466,9 @@ function Update-SelectionInfo {
     } else {
         $ui.DevicesEmpty.Visibility = 'Visible'
         $ui.DevicesEmptyText.Text =
-            if (-not $script:State.DeviceType) { 'Bitte oben wählen: Server oder Clients' }
-            elseif ($total -eq 0)              { "Im Quell-Tenant wurden keine $(Get-DeviceLabel) gefunden." }
-            else                               { 'Keine Treffer für die Suche.' }
+            if (-not $script:State.DeviceType) { 'Please choose above: servers or clients' }
+            elseif ($total -eq 0)              { "No $(Get-DeviceLabel) found in the source tenant." }
+            else                               { 'No devices match your search.' }
     }
     if ($script:State.Page -eq 3) { Update-Footer }
 }
@@ -1498,7 +1500,7 @@ function Update-DeviceList {
     Update-Steps
 
     $label = Get-DeviceLabel
-    Start-BgTask -BusyText "Lade $label aus '$($script:State.Src.Name)'…" `
+    Start-BgTask -BusyText "Loading $label from '$($script:State.Src.Name)'…" `
         -Arguments @{ Tenant = $script:State.Src; Type = $script:State.DeviceType } -Work {
         param($Tenant, $Type)
         [pscustomobject]@{ Key = "$($Tenant.TenantId)|$Type"; Items = @(Get-SophosEndpoints -Tenant $Tenant -Type $Type) }
@@ -1523,15 +1525,15 @@ function Update-DeviceList {
         }
         $script:State.LoadedKey = $r.Key
         Update-SelectionInfo
-        Set-Status "$($script:Devices.Count) $(Get-DeviceLabel) im Quell-Tenant gefunden." 'ok'
+        Set-Status "$($script:Devices.Count) $(Get-DeviceLabel) found in the source tenant." 'ok'
     } -OnError {
         param($e)
-        Show-Error "Geräte konnten nicht geladen werden:`n$e"
+        Show-Error "The devices could not be loaded:`n$e"
     }
 }
 
 # ============================================================================
-#  Schritt 4: Migration
+#  Step 4: Migration
 # ============================================================================
 
 function Show-MigrationPage {
@@ -1549,8 +1551,8 @@ function Show-MigrationPage {
     $ui.TxtSumDst.Text   = $s.Dst.Name
     $ui.TxtSumDstId.Text = $s.Dst.TenantId
     $ui.TxtSumCount.Text = "$($selected.Count)"
-    $ui.TxtSumType.Text  = "$(Get-DeviceLabel) · Region $($s.Src.Region)"
-    $ui.TxtMigrateSub.Text = 'Prüfe die Zusammenfassung und starte die Migration.'
+    $ui.TxtSumType.Text  = "$(ConvertTo-TitleCase (Get-DeviceLabel)) · region $($s.Src.Region)"
+    $ui.TxtMigrateSub.Text = 'Review the summary and start the migration.'
     Show-Page 4
 }
 
@@ -1558,31 +1560,31 @@ function Start-Migration {
     $s = $script:State
     $count = $script:MigrationItems.Count
     $answer = [System.Windows.MessageBox]::Show($window,
-        "Sollen $count $(Get-DeviceLabel) von '$($s.Src.Name)' nach '$($s.Dst.Name)' migriert werden?`n`nRichtlinien und Gruppen werden nicht übernommen.",
-        'Migration starten', 'YesNo', 'Warning')
+        "Migrate $count $(Get-DeviceLabel) from '$($s.Src.Name)' to '$($s.Dst.Name)'?`n`nPolicies and groups are not transferred.",
+        'Start migration', 'YesNo', 'Warning')
     if ("$answer" -ne 'Yes') { return }
 
     [string[]]$ids = @($script:MigrationItems | ForEach-Object { $_.Id })
 
-    Start-BgTask -BusyText 'Migration wird gestartet…' -Arguments @{ Src = $s.Src; Dst = $s.Dst; Ids = $ids } -Work {
+    Start-BgTask -BusyText 'Starting migration…' -Arguments @{ Src = $s.Src; Dst = $s.Dst; Ids = $ids } -Work {
         param($Src, $Dst, [string[]]$Ids)
 
-        # Schritt 1: Migrations-Job im ZIEL-Tenant anlegen (liefert Job-ID + Token)
+        # Step 1: create the migration job in the TARGET tenant (returns job ID + token)
         $createBody = @{ fromTenant = $Src.TenantId; endpoints = $Ids } | ConvertTo-Json -Depth 4
         try {
             $job = Invoke-SophosApi -Method Post -Uri "$($Dst.ApiHost)/endpoint/v1/migrations" `
                 -Headers (Get-SophosTenantHeaders -Tenant $Dst) -ContentType 'application/json' -Body $createBody
         } catch {
-            throw "Fehler beim Anlegen des Migrations-Jobs im Ziel-Tenant:`n$($_.Exception.Message)"
+            throw "Failed to create the migration job in the target tenant:`n$($_.Exception.Message)"
         }
 
-        # Schritt 2: Migration im QUELL-Tenant bestätigen/starten
+        # Step 2: confirm/start the migration in the SOURCE tenant
         $startBody = @{ token = $job.token; endpoints = $Ids } | ConvertTo-Json -Depth 4
         try {
             $null = Invoke-SophosApi -Method Put -Uri "$($Src.ApiHost)/endpoint/v1/migrations/$($job.id)" `
                 -Headers (Get-SophosTenantHeaders -Tenant $Src) -ContentType 'application/json' -Body $startBody
         } catch {
-            throw "Fehler beim Starten der Migration im Quell-Tenant (Job $($job.id)):`n$($_.Exception.Message)"
+            throw "Failed to start the migration in the source tenant (job $($job.id)):`n$($_.Exception.Message)"
         }
         [pscustomobject]@{ JobId = $job.id }
     } -OnSuccess {
@@ -1598,18 +1600,18 @@ function Start-Migration {
 
         $ui.PanelPreStart.Visibility = 'Collapsed'
         $ui.PanelProgress.Visibility = 'Visible'
-        $ui.LogColumn.Width = New-Object System.Windows.GridLength 360
+        $ui.LogColumn.Width = New-Object System.Windows.GridLength 320
         $ui.LogCard.Visibility = 'Visible'
         $ui.TxtJobId.Text = $r.JobId
-        $ui.TxtMigrateSub.Text = "Die Migration läuft. Der Status wird alle $($script:PollIntervalSec) Sekunden abgefragt (max. $($script:MaxWaitMinutes) Minuten)."
+        $ui.TxtMigrateSub.Text = "The migration is running. The status is checked every $($script:PollIntervalSec) seconds (max. $($script:MaxWaitMinutes) minutes)."
 
-        Write-Log "Migrations-Job im Ziel-Tenant erstellt (ID: $($r.JobId))."
-        Write-Log "Migration im Quell-Tenant gestartet – $($script:MigrationItems.Count) Gerät(e)."
-        Write-Log 'Die Geräte holen den Auftrag bei ihrem nächsten Check-in ab.'
+        Write-Log "Migration job created in the target tenant (ID: $($r.JobId))."
+        Write-Log "Migration started in the source tenant – $($script:MigrationItems.Count) device(s)."
+        Write-Log 'The devices pick up the job at their next check-in.'
         Update-Kpis
         Update-Steps
         Update-Footer
-        Set-Status "Migration gestartet (Job $($r.JobId))." 'ok'
+        Set-Status "Migration started (job $($r.JobId))." 'ok'
     } -OnError {
         param($e)
         Show-Error $e
@@ -1627,7 +1629,7 @@ function Update-Kpis {
     $ui.KpiOpen.Text   = "$($total - $ok - $failed)"
     $ui.PrgMigration.Maximum = [Math]::Max(1, $total)
     $ui.PrgMigration.Value   = $ok + $failed
-    $ui.TxtProgress.Text = "$($ok + $failed) von $total abgeschlossen"
+    $ui.TxtProgress.Text = "$($ok + $failed) of $total finished"
     return [pscustomobject]@{ Ok = $ok; Failed = $failed; Open = $total - $ok - $failed }
 }
 
@@ -1667,8 +1669,8 @@ function Invoke-StatusPoll {
                 $dev.Status = $status
                 $dev.StatusText = ConvertTo-StatusText $status
                 switch ($status) {
-                    'succeeded' { Write-Log "[OK]      $($dev.Hostname) → erfolgreich migriert" }
-                    'failed'    { Write-Log "[FEHLER]  $($dev.Hostname) → Migration fehlgeschlagen" }
+                    'succeeded' { Write-Log "[OK]      $($dev.Hostname) → migrated successfully" }
+                    'failed'    { Write-Log "[FAILED]  $($dev.Hostname) → migration failed" }
                     default     { Write-Log "[STATUS]  $($dev.Hostname) → $($dev.StatusText)" }
                 }
             }
@@ -1677,18 +1679,18 @@ function Invoke-StatusPoll {
 
         if ($st.Polling) {
             if ($r.Items.Count -gt 0 -and $k.Open -eq 0) {
-                Stop-Polling "Alle Geräte abgeschlossen: $($k.Ok) erfolgreich, $($k.Failed) fehlgeschlagen."
+                Stop-Polling "All devices finished: $($k.Ok) succeeded, $($k.Failed) failed."
                 $kind = if ($k.Failed -gt 0) { 'warn' } else { 'ok' }
-                Set-Status "Migration abgeschlossen – $($k.Ok) erfolgreich, $($k.Failed) fehlgeschlagen." $kind
-                $ui.TxtMigrateSub.Text = 'Die Migration ist abgeschlossen.'
+                Set-Status "Migration finished – $($k.Ok) succeeded, $($k.Failed) failed." $kind
+                $ui.TxtMigrateSub.Text = 'The migration has finished.'
                 $icon = if ($k.Failed -gt 0) { 'Warning' } else { 'Information' }
                 [void][System.Windows.MessageBox]::Show($window,
-                    "Migration abgeschlossen.`n`nErfolgreich migriert: $($k.Ok)`nFehlgeschlagen: $($k.Failed)",
-                    'Sophos Geräte-Migration', 'OK', $icon)
+                    "Migration finished.`n`nMigrated successfully: $($k.Ok)`nFailed: $($k.Failed)",
+                    'Sophos Device Migration', 'OK', $icon)
             } elseif ((Get-Date) -gt $st.Deadline) {
-                Stop-Polling "Zeitlimit erreicht – $($k.Open) Gerät(e) noch nicht abgeschlossen. Die Migration läuft serverseitig weiter."
-                Set-Status "Zeitlimit erreicht – $($k.Open) Gerät(e) ausstehend (vermutlich offline)." 'warn'
-                $ui.TxtMigrateSub.Text = 'Statusabfrage beendet. Ausstehende Geräte werden beim nächsten Check-in migriert.'
+                Stop-Polling "Time limit reached – $($k.Open) device(s) not finished yet. The migration continues on the server side."
+                Set-Status "Time limit reached – $($k.Open) device(s) pending (probably offline)." 'warn'
+                $ui.TxtMigrateSub.Text = 'Polling stopped. Pending devices are migrated at their next check-in.'
             } else {
                 $st.NextPoll = (Get-Date).AddSeconds($script:PollIntervalSec)
             }
@@ -1699,7 +1701,7 @@ function Invoke-StatusPoll {
         $st = $script:State
         $st.PollBusy = $false
         $ui.BtnRefreshStatus.IsEnabled = $true
-        Write-Log "Statusabfrage fehlgeschlagen: $e"
+        Write-Log "Status request failed: $e"
         if ($st.Polling) { $st.NextPoll = (Get-Date).AddSeconds($script:PollIntervalSec) }
         Update-PollInfo
     }
@@ -1708,42 +1710,43 @@ function Invoke-StatusPoll {
 function Update-PollInfo {
     $s = $script:State
     if (-not $s.Started) { $ui.TxtPollInfo.Text = ''; return }
-    $last = if ($s.LastPoll) { 'Letzte Abfrage {0:HH:mm:ss}' -f $s.LastPoll } else { 'Noch keine Abfrage' }
+    $last = if ($s.LastPoll) { 'Checked {0:HH:mm:ss}' -f $s.LastPoll } else { 'Not checked yet' }
     $ui.TxtPollInfo.Text =
-        if ($s.PollBusy)    { 'Status wird abgefragt…' }
-        elseif ($s.Polling) { "$last · nächste in $([Math]::Max(0, [int]($s.NextPoll - (Get-Date)).TotalSeconds)) s" }
-        else                { "$last · automatische Abfrage beendet" }
+        if ($s.PollBusy)    { 'Checking status…' }
+        elseif ($s.Polling) { "$last · next in $([Math]::Max(0, [int]($s.NextPoll - (Get-Date)).TotalSeconds)) s" }
+        else                { "$last · polling stopped" }
 }
 
 function Export-MigrationResult {
     $dlg = New-Object Microsoft.Win32.SaveFileDialog
-    $dlg.Filter = 'CSV-Datei (*.csv)|*.csv'
+    $dlg.Filter = 'CSV file (*.csv)|*.csv'
     $dlg.FileName = 'Sophos-Migration_{0:yyyyMMdd-HHmm}.csv' -f (Get-Date)
     if (-not $dlg.ShowDialog($window)) { return }
 
     $jobId = $script:State.JobId
     try {
+        # -UseCulture picks the list separator Excel expects for the current locale
         $script:MigrationItems | ForEach-Object {
             [pscustomobject]@{
                 Hostname           = $_.Hostname
-                Betriebssystem     = $_.OS
-                'Letzter Benutzer' = $_.LastUser
+                'Operating system' = $_.OS
+                'Last user'        = $_.LastUser
                 Status             = $_.StatusText
                 'Status (API)'     = $_.Status
-                'Geräte-ID'        = $_.Id
-                'Job-ID'           = $jobId
-                Quelle             = $script:State.Src.Name
-                Ziel               = $script:State.Dst.Name
+                'Device ID'        = $_.Id
+                'Job ID'           = $jobId
+                Source             = $script:State.Src.Name
+                Target             = $script:State.Dst.Name
             }
-        } | Export-Csv -Path $dlg.FileName -NoTypeInformation -Delimiter ';' -Encoding UTF8
-        Set-Status "Ergebnis exportiert: $($dlg.FileName)" 'ok'
-        Write-Log "Ergebnis exportiert nach $($dlg.FileName)"
+        } | Export-Csv -Path $dlg.FileName -NoTypeInformation -UseCulture -Encoding UTF8
+        Set-Status "Result exported: $($dlg.FileName)" 'ok'
+        Write-Log "Result exported to $($dlg.FileName)"
     } catch {
-        Show-Error "Export fehlgeschlagen:`n$($_.Exception.Message)"
+        Show-Error "Export failed:`n$($_.Exception.Message)"
     }
 }
 
-# Sekundentakt: Countdown anzeigen und fällige Statusabfragen auslösen
+# One-second tick: show the countdown and trigger due status checks
 $script:ClockTimer = New-Object System.Windows.Threading.DispatcherTimer
 $script:ClockTimer.Interval = [TimeSpan]::FromSeconds(1)
 $script:ClockTimer.Add_Tick({
@@ -1753,7 +1756,7 @@ $script:ClockTimer.Add_Tick({
 })
 
 # ============================================================================
-#  Ereignisse
+#  Events
 # ============================================================================
 
 $ui.RbTenantKeys.Add_Checked({ Update-AuthPanels })
@@ -1776,7 +1779,7 @@ $ui.LstDstTenants.Add_MouseDoubleClick({ if (Test-TenantSelection) { Confirm-Ten
 $ui.RbServer.Add_Checked({ $script:State.DeviceType = 'server'; Update-DeviceList })
 $ui.RbClients.Add_Checked({ $script:State.DeviceType = 'computer'; Update-DeviceList })
 $ui.BtnReload.Add_Click({
-    if ($script:State.DeviceType) { Update-DeviceList } else { Show-Warning 'Bitte zuerst Server oder Clients wählen.' }
+    if ($script:State.DeviceType) { Update-DeviceList } else { Show-Warning 'Please choose servers or clients first.' }
 })
 $ui.TxtDeviceSearch.Add_TextChanged({ $script:DeviceView.Refresh(); Update-SelectionInfo })
 $ui.BtnSelectAll.Add_Click({ Set-DeviceSelection -Items $script:DeviceView -Value $true })
@@ -1798,8 +1801,8 @@ $ui.GridDevices.Add_MouseDoubleClick({
 
 $ui.BtnRefreshStatus.Add_Click({ Invoke-StatusPoll })
 $ui.BtnStopPolling.Add_Click({
-    Stop-Polling 'Automatische Statusabfrage beendet. Die Migration läuft serverseitig weiter.'
-    Set-Status 'Statusabfrage beendet – die Migration läuft serverseitig weiter.' 'info'
+    Stop-Polling 'Automatic polling stopped. The migration continues on the server side.'
+    Set-Status 'Polling stopped – the migration continues on the server side.' 'info'
 })
 $ui.BtnExport.Add_Click({ Export-MigrationResult })
 
@@ -1824,8 +1827,8 @@ $window.Add_Closing({
     param($sender, $e)
     if ($script:State.Polling) {
         $answer = [System.Windows.MessageBox]::Show($window,
-            "Die Statusabfrage läuft noch. Die Migration selbst läuft serverseitig weiter, auch wenn das Fenster geschlossen wird.`n`nFenster jetzt schließen?",
-            'Sophos Geräte-Migration', 'YesNo', 'Question')
+            "Status polling is still running. The migration itself continues on the server side even if the window is closed.`n`nClose the window now?",
+            'Sophos Device Migration', 'YesNo', 'Question')
         if ("$answer" -ne 'Yes') { $e.Cancel = $true; return }
     }
     $script:ClockTimer.Stop()
