@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Version ohne "v" (z.B. 2.0)'
+        description: 'Version without "v" (e.g. 2.0)'
         required: true
 
 permissions:
@@ -19,7 +19,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Version bestimmen
+      - name: Determine version
         id: version
         run: |
           if [ -n "${{ github.event.inputs.version }}" ]; then
@@ -28,14 +28,14 @@ jobs:
             echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Paket und Release-Notes erstellen
+      - name: Build package and release notes
         run: |
           VERSION="${{ steps.version.outputs.version }}"
           NAME="Sophos-DeviceMigration-v${VERSION}"
           mkdir -p "dist/${NAME}"
-          cp Sophos-DeviceMigration.ps1 Sophos-DeviceMigration-GUI.ps1 Start-GUI.cmd README.md CHANGELOG.md "dist/${NAME}/"
+          cp -r Sophos-DeviceMigration.ps1 Sophos-DeviceMigration-GUI.ps1 Start-GUI.cmd README.md CHANGELOG.md docs "dist/${NAME}/"
           (cd dist && zip -r "${NAME}.zip" "${NAME}")
-          # Abschnitt der Version aus dem CHANGELOG als Release-Notes verwenden
+          # Use this version's CHANGELOG section as release notes
           awk -v v="$VERSION" '
             $0 ~ "^## \\[?" v "\\]?([ ]|$)" { found = 1; next }
             found && /^## / { exit }
@@ -43,7 +43,7 @@ jobs:
           ' CHANGELOG.md > dist/notes.md
           [ -s dist/notes.md ] || echo "Version ${VERSION}" > dist/notes.md
 
-      - name: GitHub-Release anlegen
+      - name: Create GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

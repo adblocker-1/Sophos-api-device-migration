@@ -1,32 +1,32 @@
-<#
+﻿<#
 .SYNOPSIS
-    Interaktive Migration von Sophos Central Geräten (Server oder Clients)
-    von einem Tenant auf einen anderen Tenant.
+    Interactive migration of Sophos Central devices (servers or clients)
+    from one tenant to another tenant.
 
 .DESCRIPTION
-    Das Skript nutzt die offizielle Sophos Central Endpoint-Migration-API:
-      1. Auswahl der Anmeldeart:
-           [1] Tenant-API-Keys - je ein API-Credential für Quell- und Ziel-Tenant
-           [2] Partner-/Organisations-API-Key - ein Login, Tenant-Auswahl per GUI
-      2. Abfrage: Server oder Clients migrieren (oder abbrechen)
-      3. Abfrage: alle Geräte oder einzelne Geräte per GUI (Out-GridView) auswählen
-      4. Migration starten (Zwei-Schritt-Handshake: Ziel-Tenant -> Quell-Tenant)
-      5. Status-Polling mit Rückmeldung pro Gerät
+    The script uses the official Sophos Central endpoint migration API:
+      1. Choose the sign-in method:
+           [1] Tenant API keys - one API credential each for the source and target tenant
+           [2] Partner/organization API key - a single sign-in, tenants are picked from a list
+      2. Choose whether to migrate servers or clients (or cancel)
+      3. Migrate all devices or pick individual devices in a GUI list (Out-GridView)
+      4. Start the migration (two-step handshake: target tenant -> source tenant)
+      5. Poll the migration status and report the result per device
 
-    Voraussetzungen:
-      - Sophos Central API-Credentials (Client-ID / Client-Secret):
-        entweder pro Tenant (Sophos Central Admin -> Globale Einstellungen ->
-        API-Anmeldeinformationen) oder als Partner-/Organisations-Credential.
-      - Quell- und Ziel-Tenant müssen in derselben Datenregion liegen
-        (Voraussetzung der Sophos-Migration-API).
-      - Windows PowerShell 5.1 oder PowerShell 7+ (für Out-GridView unter PS7:
-        Modul Microsoft.PowerShell.GraphicalTools; ohne GUI gibt es einen Konsolen-Fallback).
+    Requirements:
+      - Sophos Central API credentials (client ID / client secret):
+        either per tenant (Sophos Central Admin -> Global Settings ->
+        API Credentials Management) or a partner/organization credential.
+      - Source and target tenant must be in the same data region
+        (a requirement of the Sophos migration API).
+      - Windows PowerShell 5.1 or PowerShell 7+ (for Out-GridView on PS7:
+        module Microsoft.PowerShell.GraphicalTools; without it a console selection is used).
 
 .EXAMPLE
     .\Sophos-DeviceMigration.ps1
 
 .NOTES
-    Version 2.0 - grafische Oberfläche: siehe Sophos-DeviceMigration-GUI.ps1
+    Version 2.0 - for the graphical user interface see Sophos-DeviceMigration-GUI.ps1
 #>
 
 [CmdletBinding()]
@@ -36,7 +36,7 @@ $ErrorActionPreference = 'Stop'
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12 } catch { }
 
 # ============================================================================
-#  Hilfsfunktionen
+#  Helper functions
 # ============================================================================
 
 function Write-Info    { param([string]$Text) Write-Host $Text -ForegroundColor Cyan }
@@ -72,7 +72,7 @@ function Get-SophosWhoAmI {
 }
 
 function Get-SophosTenants {
-    <# Listet alle Tenants eines Partners bzw. einer Organisation auf (mit Paginierung). #>
+    <# Lists all tenants of a partner or organization (with pagination). #>
     param(
         [string]$Token,
         [ValidateSet('partner', 'organization')][string]$IdType,
@@ -104,21 +104,21 @@ function Get-SophosTenants {
 
 function Connect-SophosTenant {
     <#
-        Meldet sich mit einem Tenant-API-Key an und liefert den Tenant-Kontext
-        (Token, Tenant-ID, API-Host, Name) zurück.
+        Signs in with a tenant API key and returns the tenant context
+        (token, tenant ID, API host, name).
     #>
     param([Parameter(Mandatory)][string]$Label)
 
     Write-Host ""
-    Write-Info "--- Anmeldung $Label ---"
-    $id     = Read-Host "  Client-ID ($Label)"
-    $secret = Read-Secret "  Client-Secret ($Label)"
+    Write-Info "--- Sign-in: $Label ---"
+    $id     = Read-Host "  Client ID ($Label)"
+    $secret = Read-Secret "  Client secret ($Label)"
 
     $token  = Get-SophosToken -Id $id -Secret $secret
     $whoami = Get-SophosWhoAmI -Token $token
 
     if ($whoami.idType -ne 'tenant') {
-        throw "Der angegebene API-Key für '$Label' ist kein Tenant-Key (Typ: $($whoami.idType)). Bitte einen API-Key des jeweiligen Tenants verwenden."
+        throw "The API key for '$Label' is not a tenant key (type: $($whoami.idType)). Please use an API key of the respective tenant."
     }
 
     return [pscustomobject]@{
@@ -131,7 +131,7 @@ function Connect-SophosTenant {
 }
 
 function Get-SophosEndpoints {
-    <# Listet Endpoints eines Tenants, gefiltert nach Typ (computer | server). #>
+    <# Lists the endpoints of a tenant, filtered by type (computer | server). #>
     param(
         [Parameter(Mandatory)]$Tenant,
         [ValidateSet('computer', 'server')][string]$Type
@@ -156,8 +156,8 @@ function Get-SophosEndpoints {
 
 function Select-FromList {
     <#
-        Auswahl aus einer Liste – bevorzugt per GUI (Out-GridView),
-        Fallback auf Konsolen-Auswahl, falls keine GUI verfügbar ist.
+        Selection from a list - preferably via GUI (Out-GridView),
+        falls back to a console selection if no GUI is available.
     #>
     param(
         [Parameter(Mandatory)][object[]]$Items,
@@ -171,8 +171,8 @@ function Select-FromList {
         return @($Items | Out-GridView -Title $Title -OutputMode $mode)
     }
 
-    # ---- Konsolen-Fallback ----
-    Write-Warn2 "`nOut-GridView ist nicht verfügbar – Konsolen-Auswahl wird verwendet."
+    # ---- Console fallback ----
+    Write-Warn2 "`nOut-GridView is not available - using console selection."
     Write-Host "`n$Title" -ForegroundColor Cyan
     for ($i = 0; $i -lt $Items.Count; $i++) {
         $label = if ($Items[$i].PSObject.Properties['Hostname']) { $Items[$i].Hostname }
@@ -180,8 +180,8 @@ function Select-FromList {
                  else { $Items[$i].ToString() }
         Write-Host ("  [{0,3}] {1}" -f ($i + 1), $label)
     }
-    $hint = if ($Multiple) { "Nummern kommagetrennt (z.B. 1,3,5) oder 'a' für alle" } else { "eine Nummer" }
-    $answer = Read-Host "Auswahl ($hint, leer = abbrechen)"
+    $hint = if ($Multiple) { "comma-separated numbers (e.g. 1,3,5) or 'a' for all" } else { "a single number" }
+    $answer = Read-Host "Selection ($hint, empty = cancel)"
     if ([string]::IsNullOrWhiteSpace($answer)) { return @() }
     if ($Multiple -and $answer.Trim() -eq 'a') { return @($Items) }
 
@@ -196,86 +196,86 @@ function Select-FromList {
 }
 
 # ============================================================================
-#  1) Anmeldeart wählen und anmelden
+#  1) Choose the sign-in method and sign in
 # ============================================================================
 
 Write-Host ""
 Write-Host "=====================================================" -ForegroundColor Cyan
-Write-Host "   Sophos Central - Geräte-Migration zwischen Tenants" -ForegroundColor Cyan
+Write-Host "   Sophos Central - device migration between tenants" -ForegroundColor Cyan
 Write-Host "=====================================================" -ForegroundColor Cyan
 Write-Host ""
 
-Write-Host "Wie möchtest du dich anmelden?" -ForegroundColor Cyan
-Write-Host "  [1] Tenant-API-Keys (je ein API-Key für Quell- und Ziel-Tenant)"
-Write-Host "  [2] Partner-/Organisations-API-Key (ein Login, Tenant-Auswahl per Liste)"
-Write-Host "  [3] Abbrechen"
-$authChoice = Read-Host "Auswahl (1-3)"
+Write-Host "How do you want to sign in?" -ForegroundColor Cyan
+Write-Host "  [1] Tenant API keys (one API key each for the source and target tenant)"
+Write-Host "  [2] Partner/organization API key (single sign-in, tenants picked from a list)"
+Write-Host "  [3] Cancel"
+$authChoice = Read-Host "Choice (1-3)"
 
-$srcTenant = $null   # Kontext: Token, TenantId, ApiHost, Name
+$srcTenant = $null   # context: Token, TenantId, ApiHost, Name
 $dstTenant = $null
 
 switch ($authChoice) {
 
-    # ---- Variante 1: eigene API-Keys pro Tenant ----
+    # ---- Option 1: one API key per tenant ----
     '1' {
         try {
-            $srcTenant = Connect-SophosTenant -Label "QUELL-Tenant (von dort werden Geräte migriert)"
-            Write-Ok "  Angemeldet am Quell-Tenant [$($srcTenant.TenantId)]"
+            $srcTenant = Connect-SophosTenant -Label "SOURCE tenant (devices are migrated from here)"
+            Write-Ok "  Signed in to source tenant [$($srcTenant.TenantId)]"
 
-            $dstTenant = Connect-SophosTenant -Label "ZIEL-Tenant (dorthin werden Geräte migriert)"
-            Write-Ok "  Angemeldet am Ziel-Tenant [$($dstTenant.TenantId)]"
+            $dstTenant = Connect-SophosTenant -Label "TARGET tenant (devices are migrated to here)"
+            Write-Ok "  Signed in to target tenant [$($dstTenant.TenantId)]"
         } catch {
-            Write-Err "Anmeldung fehlgeschlagen: $($_.Exception.Message)"
+            Write-Err "Sign-in failed: $($_.Exception.Message)"
             exit 1
         }
 
         if ($srcTenant.TenantId -eq $dstTenant.TenantId) {
-            Write-Err "Quell- und Ziel-Tenant sind identisch - bitte unterschiedliche Tenants verwenden."
+            Write-Err "Source and target tenant are identical - please use two different tenants."
             exit 1
         }
-        $srcTenant.Name = "Quell-Tenant"
-        $dstTenant.Name = "Ziel-Tenant"
+        $srcTenant.Name = "Source tenant"
+        $dstTenant.Name = "Target tenant"
     }
 
-    # ---- Variante 2: Partner-/Organisations-Login mit Tenant-Auswahl ----
+    # ---- Option 2: partner/organization sign-in with tenant selection ----
     '2' {
-        $pId     = Read-Host "Partner-/Organisations Client-ID"
-        $pSecret = Read-Secret "Partner-/Organisations Client-Secret"
+        $pId     = Read-Host "Partner/organization client ID"
+        $pSecret = Read-Secret "Partner/organization client secret"
 
-        Write-Info "Hole Access-Token..."
+        Write-Info "Requesting access token..."
         try {
             $pToken = Get-SophosToken -Id $pId -Secret $pSecret
         } catch {
-            Write-Err "Anmeldung fehlgeschlagen: $($_.Exception.Message)"
+            Write-Err "Sign-in failed: $($_.Exception.Message)"
             exit 1
         }
 
         $whoami = Get-SophosWhoAmI -Token $pToken
         if ($whoami.idType -notin @('partner', 'organization')) {
-            Write-Err "Der API-Key ist kein Partner-/Organisations-Key (Typ: $($whoami.idType))."
-            Write-Err "Für Tenant-API-Keys bitte das Skript neu starten und Variante [1] wählen."
+            Write-Err "The API key is not a partner/organization key (type: $($whoami.idType))."
+            Write-Err "For tenant API keys, please restart the script and choose option [1]."
             exit 1
         }
-        Write-Ok "Anmeldung erfolgreich ($($whoami.idType))."
+        Write-Ok "Signed in successfully ($($whoami.idType))."
 
-        Write-Info "Lade Tenant-Liste..."
+        Write-Info "Loading tenant list..."
         $allTenants = Get-SophosTenants -Token $pToken -IdType $whoami.idType -EntityId $whoami.id |
             Where-Object { $_.apiHost } |
             Sort-Object name |
             Select-Object name, id, dataRegion, apiHost
 
-        if (-not $allTenants) { Write-Err "Keine Tenants gefunden."; exit 1 }
+        if (-not $allTenants) { Write-Err "No tenants found."; exit 1 }
 
-        $srcPick = (Select-FromList -Items $allTenants -Title "QUELL-Tenant auswählen (von dort werden Geräte migriert)") | Select-Object -First 1
-        if (-not $srcPick) { Write-Warn2 "Abgebrochen."; exit 0 }
+        $srcPick = (Select-FromList -Items $allTenants -Title "Select SOURCE tenant (devices are migrated from here)") | Select-Object -First 1
+        if (-not $srcPick) { Write-Warn2 "Cancelled."; exit 0 }
 
         $dstPick = (Select-FromList -Items ($allTenants | Where-Object { $_.id -ne $srcPick.id }) `
-            -Title "ZIEL-Tenant auswählen (dorthin werden Geräte migriert)") | Select-Object -First 1
-        if (-not $dstPick) { Write-Warn2 "Abgebrochen."; exit 0 }
+            -Title "Select TARGET tenant (devices are migrated to here)") | Select-Object -First 1
+        if (-not $dstPick) { Write-Warn2 "Cancelled."; exit 0 }
 
         if ($srcPick.dataRegion -and $dstPick.dataRegion -and $srcPick.dataRegion -ne $dstPick.dataRegion) {
-            Write-Err "Quell- und Ziel-Tenant liegen in unterschiedlichen Datenregionen ($($srcPick.dataRegion) / $($dstPick.dataRegion))."
-            Write-Err "Die Sophos-Migration-API unterstützt nur Migrationen innerhalb derselben Region."
+            Write-Err "Source and target tenant are in different data regions ($($srcPick.dataRegion) / $($dstPick.dataRegion))."
+            Write-Err "The Sophos migration API only supports migrations within the same region."
             exit 1
         }
 
@@ -283,144 +283,144 @@ switch ($authChoice) {
         $dstTenant = [pscustomobject]@{ Token = $pToken; TenantId = $dstPick.id; ApiHost = $dstPick.apiHost; Name = $dstPick.name }
     }
 
-    default { Write-Warn2 "Abgebrochen."; exit 0 }
+    default { Write-Warn2 "Cancelled."; exit 0 }
 }
 
 Write-Host ""
-Write-Ok "Quelle: $($srcTenant.Name)  [$($srcTenant.TenantId)]"
-Write-Ok "Ziel:   $($dstTenant.Name)  [$($dstTenant.TenantId)]"
+Write-Ok "Source: $($srcTenant.Name)  [$($srcTenant.TenantId)]"
+Write-Ok "Target: $($dstTenant.Name)  [$($dstTenant.TenantId)]"
 
 if ($srcTenant.ApiHost -ne $dstTenant.ApiHost) {
-    Write-Err "Quell- und Ziel-Tenant liegen in unterschiedlichen Datenregionen ($($srcTenant.ApiHost) / $($dstTenant.ApiHost))."
-    Write-Err "Die Sophos-Migration-API unterstützt nur Migrationen innerhalb derselben Region."
+    Write-Err "Source and target tenant are in different data regions ($($srcTenant.ApiHost) / $($dstTenant.ApiHost))."
+    Write-Err "The Sophos migration API only supports migrations within the same region."
     exit 1
 }
 
 # ============================================================================
-#  2) Abfrage: Was soll migriert werden?
+#  2) What should be migrated?
 # ============================================================================
 
 Write-Host ""
-Write-Host "Was soll migriert werden?" -ForegroundColor Cyan
-Write-Host "  [1] Server"
-Write-Host "  [2] Clients (Computer)"
-Write-Host "  [3] Abbrechen"
-$choice = Read-Host "Auswahl (1-3)"
+Write-Host "What do you want to migrate?" -ForegroundColor Cyan
+Write-Host "  [1] Servers"
+Write-Host "  [2] Clients (computers)"
+Write-Host "  [3] Cancel"
+$choice = Read-Host "Choice (1-3)"
 
 switch ($choice) {
-    '1' { $deviceType = 'server';   $deviceLabel = 'Server'  }
-    '2' { $deviceType = 'computer'; $deviceLabel = 'Clients' }
-    default { Write-Warn2 "Abgebrochen."; exit 0 }
+    '1' { $deviceType = 'server';   $deviceLabel = 'servers' }
+    '2' { $deviceType = 'computer'; $deviceLabel = 'clients' }
+    default { Write-Warn2 "Cancelled."; exit 0 }
 }
 
 # ============================================================================
-#  3) Geräte laden und auswählen (alle oder einzeln per GUI)
+#  3) Load and select devices (all or individually via GUI)
 # ============================================================================
 
-Write-Info "`nLade $deviceLabel aus Quell-Tenant '$($srcTenant.Name)'..."
+Write-Info "`nLoading $deviceLabel from source tenant '$($srcTenant.Name)'..."
 $devices = Get-SophosEndpoints -Tenant $srcTenant -Type $deviceType
 
 if (-not $devices -or $devices.Count -eq 0) {
-    Write-Warn2 "Im Quell-Tenant wurden keine $deviceLabel gefunden."
+    Write-Warn2 "No $deviceLabel found in the source tenant."
     exit 0
 }
-Write-Ok "$($devices.Count) $deviceLabel gefunden."
+Write-Ok "$($devices.Count) $deviceLabel found."
 
 $deviceView = $devices | ForEach-Object {
     [pscustomobject]@{
-        Hostname       = $_.hostname
-        Typ            = $_.type
-        OS             = $_.os.name
-        'Letzter User' = $_.associatedPerson.viaLogin
-        Health         = $_.health.overall
-        'Zuletzt online' = $_.lastSeenAt
-        Id             = $_.id
+        Hostname    = $_.hostname
+        Type        = $_.type
+        OS          = $_.os.name
+        'Last user' = $_.associatedPerson.viaLogin
+        Health      = $_.health.overall
+        'Last seen' = $_.lastSeenAt
+        Id          = $_.id
     }
 }
 
 Write-Host ""
-Write-Host "Wie sollen die $deviceLabel migriert werden?" -ForegroundColor Cyan
-Write-Host "  [1] ALLE $deviceLabel migrieren ($($devices.Count) Stück)"
-Write-Host "  [2] Einzeln auswählen (GUI-Liste)"
-Write-Host "  [3] Abbrechen"
-$scopeChoice = Read-Host "Auswahl (1-3)"
+Write-Host "Which $deviceLabel do you want to migrate?" -ForegroundColor Cyan
+Write-Host "  [1] ALL $deviceLabel ($($devices.Count))"
+Write-Host "  [2] Select individually (GUI list)"
+Write-Host "  [3] Cancel"
+$scopeChoice = Read-Host "Choice (1-3)"
 
 switch ($scopeChoice) {
     '1' { $selectedDevices = @($deviceView) }
     '2' {
         $selectedDevices = Select-FromList -Items $deviceView -Multiple `
-            -Title "$deviceLabel im Tenant '$($srcTenant.Name)' - zu migrierende Geräte markieren (Strg/Shift für Mehrfachauswahl)"
+            -Title "$deviceLabel in tenant '$($srcTenant.Name)' - select the devices to migrate (Ctrl/Shift for multiple)"
     }
-    default { Write-Warn2 "Abgebrochen."; exit 0 }
+    default { Write-Warn2 "Cancelled."; exit 0 }
 }
 
 if (-not $selectedDevices -or $selectedDevices.Count -eq 0) {
-    Write-Warn2 "Keine Geräte ausgewählt - Abbruch."
+    Write-Warn2 "No devices selected - aborting."
     exit 0
 }
 
 Write-Host ""
-Write-Info "Folgende $($selectedDevices.Count) Geräte werden migriert:"
+Write-Info "The following $($selectedDevices.Count) device(s) will be migrated:"
 $selectedDevices | ForEach-Object { Write-Host "  - $($_.Hostname)" }
 
 Write-Host ""
-$confirm = Read-Host "Migration von '$($srcTenant.Name)' nach '$($dstTenant.Name)' jetzt starten? (j/n)"
-if ($confirm -notin @('j', 'J', 'ja', 'Ja', 'y', 'Y')) {
-    Write-Warn2 "Abgebrochen."
+$confirm = Read-Host "Start migration from '$($srcTenant.Name)' to '$($dstTenant.Name)' now? (y/n)"
+if ($confirm -notin @('y', 'Y', 'yes', 'Yes', 'j', 'J')) {
+    Write-Warn2 "Cancelled."
     exit 0
 }
 
 $endpointIds = @($selectedDevices | ForEach-Object { $_.Id })
 
 # ============================================================================
-#  4) Migration starten (Zwei-Schritt-Handshake)
+#  4) Start the migration (two-step handshake)
 # ============================================================================
 
-# Schritt 1: Migrations-Job im ZIEL-Tenant anlegen (liefert Job-ID + Token)
-Write-Info "`n[1/2] Erstelle Migrations-Job im Ziel-Tenant..."
+# Step 1: create the migration job in the TARGET tenant (returns job ID + token)
+Write-Info "`n[1/2] Creating migration job in the target tenant..."
 $createBody = @{ fromTenant = $srcTenant.TenantId; endpoints = $endpointIds } | ConvertTo-Json -Depth 4
 try {
     $job = Invoke-RestMethod -Method Post -Uri "$($dstTenant.ApiHost)/endpoint/v1/migrations" `
         -Headers @{ Authorization = "Bearer $($dstTenant.Token)"; 'X-Tenant-ID' = $dstTenant.TenantId } `
         -ContentType 'application/json' -Body $createBody
 } catch {
-    Write-Err "Fehler beim Anlegen des Migrations-Jobs im Ziel-Tenant: $($_.Exception.Message)"
+    Write-Err "Failed to create the migration job in the target tenant: $($_.Exception.Message)"
     if ($_.ErrorDetails.Message) { Write-Err $_.ErrorDetails.Message }
     exit 1
 }
-Write-Ok "Migrations-Job erstellt (ID: $($job.id))."
+Write-Ok "Migration job created (ID: $($job.id))."
 
-# Schritt 2: Migration im QUELL-Tenant bestätigen/starten
-Write-Info "[2/2] Starte Migration im Quell-Tenant..."
+# Step 2: confirm/start the migration in the SOURCE tenant
+Write-Info "[2/2] Starting migration in the source tenant..."
 $startBody = @{ token = $job.token; endpoints = $endpointIds } | ConvertTo-Json -Depth 4
 try {
     $start = Invoke-RestMethod -Method Put -Uri "$($srcTenant.ApiHost)/endpoint/v1/migrations/$($job.id)" `
         -Headers @{ Authorization = "Bearer $($srcTenant.Token)"; 'X-Tenant-ID' = $srcTenant.TenantId } `
         -ContentType 'application/json' -Body $startBody
 } catch {
-    Write-Err "Fehler beim Starten der Migration im Quell-Tenant: $($_.Exception.Message)"
+    Write-Err "Failed to start the migration in the source tenant: $($_.Exception.Message)"
     if ($_.ErrorDetails.Message) { Write-Err $_.ErrorDetails.Message }
     exit 1
 }
-Write-Ok "Migration gestartet. Die Geräte holen den Auftrag bei ihrem nächsten Check-in ab."
+Write-Ok "Migration started. The devices pick up the job at their next check-in."
 
 # ============================================================================
-#  5) Status-Rückmeldung pro Gerät (Polling)
+#  5) Status per device (polling)
 # ============================================================================
 
 $hostnameById = @{}
 foreach ($d in $selectedDevices) { $hostnameById[$d.Id] = $d.Hostname }
 
-# Endstatus laut Sophos-API; alles andere gilt als "in Arbeit"
+# Final states according to the Sophos API; everything else counts as "in progress"
 $terminalStates = @('succeeded', 'failed')
 $pollIntervalSec = 30
 $maxWaitMinutes  = 30
 $deadline = (Get-Date).AddMinutes($maxWaitMinutes)
 
 Write-Host ""
-Write-Info "Frage Migrationsstatus ab (alle $pollIntervalSec Sekunden, max. $maxWaitMinutes Minuten)..."
-Write-Warn2 "Hinweis: Geräte, die offline sind, verbleiben in 'pending', bis sie sich das nächste Mal melden."
-Write-Warn2 "Das Skript kann jederzeit mit Strg+C beendet werden - die Migration läuft serverseitig weiter."
+Write-Info "Polling migration status (every $pollIntervalSec seconds, max. $maxWaitMinutes minutes)..."
+Write-Warn2 "Note: offline devices stay 'pending' until they check in the next time."
+Write-Warn2 "You can stop the script at any time with Ctrl+C - the migration continues on the server side."
 
 $lastStatus = @{}
 while ($true) {
@@ -430,7 +430,7 @@ while ($true) {
             -Uri "$($srcTenant.ApiHost)/endpoint/v1/migrations/$($job.id)/endpoints?pageSize=500" `
             -Headers @{ Authorization = "Bearer $($srcTenant.Token)"; 'X-Tenant-ID' = $srcTenant.TenantId }
     } catch {
-        Write-Warn2 "Statusabfrage fehlgeschlagen: $($_.Exception.Message) - neuer Versuch..."
+        Write-Warn2 "Status request failed: $($_.Exception.Message) - retrying..."
         Start-Sleep -Seconds $pollIntervalSec
         continue
     }
@@ -442,12 +442,12 @@ while ($true) {
         $name   = if ($hostnameById.ContainsKey($item.id)) { $hostnameById[$item.id] } else { $item.id }
         $status = "$($item.status)"
 
-        # Nur bei Statusänderung eine Zeile ausgeben
+        # Only print a line when the status changes
         if ($lastStatus[$item.id] -ne $status) {
             $lastStatus[$item.id] = $status
             switch -Regex ($status) {
-                '^succeeded$' { Write-Ok   ("  [OK]      {0}  ->  erfolgreich migriert" -f $name) }
-                '^failed$'    { Write-Err  ("  [FEHLER]  {0}  ->  Migration fehlgeschlagen" -f $name) }
+                '^succeeded$' { Write-Ok   ("  [OK]      {0}  ->  migrated successfully" -f $name) }
+                '^failed$'    { Write-Err  ("  [FAILED]  {0}  ->  migration failed" -f $name) }
                 default       { Write-Info ("  [STATUS]  {0}  ->  {1}" -f $name, $status) }
             }
         }
@@ -458,30 +458,30 @@ while ($true) {
         break
     }
     if ((Get-Date) -gt $deadline) {
-        Write-Warn2 "`nZeitlimit erreicht - $pendingCount Gerät(e) sind noch nicht abgeschlossen."
-        Write-Warn2 "Die Migration läuft serverseitig weiter (Geräte melden sich beim nächsten Check-in)."
+        Write-Warn2 "`nTime limit reached - $pendingCount device(s) have not finished yet."
+        Write-Warn2 "The migration continues on the server side (devices are migrated at their next check-in)."
         break
     }
     Start-Sleep -Seconds ($pollIntervalSec - 5)
 }
 
 # ============================================================================
-#  Zusammenfassung
+#  Summary
 # ============================================================================
 
 Write-Host ""
-Write-Host "===================== ERGEBNIS =====================" -ForegroundColor Cyan
+Write-Host "====================== RESULT ======================" -ForegroundColor Cyan
 $ok     = @($lastStatus.GetEnumerator() | Where-Object { $_.Value -eq 'succeeded' })
 $failed = @($lastStatus.GetEnumerator() | Where-Object { $_.Value -eq 'failed' })
 $open   = @($lastStatus.GetEnumerator() | Where-Object { $_.Value -notin $terminalStates })
 
-Write-Ok    ("  Erfolgreich migriert: {0}" -f $ok.Count)
-Write-Err   ("  Fehlgeschlagen:       {0}" -f $failed.Count)
-Write-Warn2 ("  Noch ausstehend:      {0}" -f $open.Count)
+Write-Ok    ("  Migrated successfully: {0}" -f $ok.Count)
+Write-Err   ("  Failed:                {0}" -f $failed.Count)
+Write-Warn2 ("  Still pending:         {0}" -f $open.Count)
 
 if ($failed.Count -gt 0) {
     Write-Host ""
-    Write-Err "Fehlgeschlagene Geräte:"
+    Write-Err "Failed devices:"
     foreach ($f in $failed) {
         $name = if ($hostnameById.ContainsKey($f.Key)) { $hostnameById[$f.Key] } else { $f.Key }
         Write-Err "  - $name"
@@ -489,7 +489,7 @@ if ($failed.Count -gt 0) {
 }
 if ($open.Count -gt 0) {
     Write-Host ""
-    Write-Warn2 "Ausstehende Geräte (vermutlich offline - Migration erfolgt beim nächsten Check-in):"
+    Write-Warn2 "Pending devices (probably offline - they are migrated at their next check-in):"
     foreach ($o in $open) {
         $name = if ($hostnameById.ContainsKey($o.Key)) { $hostnameById[$o.Key] } else { $o.Key }
         Write-Warn2 "  - $name"
@@ -497,4 +497,4 @@ if ($open.Count -gt 0) {
 }
 
 Write-Host ""
-Write-Ok "Fertig. Migrations-Job-ID: $($job.id)"
+Write-Ok "Done. Migration job ID: $($job.id)"
