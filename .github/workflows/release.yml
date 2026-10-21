@@ -1,0 +1,54 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version ohne "v" (z.B. 2.0)'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version bestimmen
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Paket und Release-Notes erstellen
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          NAME="Sophos-DeviceMigration-v${VERSION}"
+          mkdir -p "dist/${NAME}"
+          cp Sophos-DeviceMigration.ps1 Sophos-DeviceMigration-GUI.ps1 Start-GUI.cmd README.md CHANGELOG.md "dist/${NAME}/"
+          (cd dist && zip -r "${NAME}.zip" "${NAME}")
+          # Abschnitt der Version aus dem CHANGELOG als Release-Notes verwenden
+          awk -v v="$VERSION" '
+            $0 ~ "^## \\[?" v "\\]?([ ]|$)" { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > dist/notes.md
+          [ -s dist/notes.md ] || echo "Version ${VERSION}" > dist/notes.md
+
+      - name: GitHub-Release anlegen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          gh release create "v${VERSION}" "dist/Sophos-DeviceMigration-v${VERSION}.zip" \
+            --title "Version ${VERSION}" \
+            --notes-file dist/notes.md \
+            --target "${{ github.sha }}"

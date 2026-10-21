@@ -11,7 +11,38 @@ Status-Rückmeldung pro Gerät und einer Ergebnis-Zusammenfassung am Ende.
 Offline-Geräte werden serverseitig nachgezogen, sobald sie sich das nächste
 Mal bei Sophos Central melden.
 
-## Ablauf
+## Grafische Oberfläche (ab Version 2.0)
+
+Neben dem Konsolen-Skript gibt es eine moderne Windows-Oberfläche:
+
+```powershell
+.\Sophos-DeviceMigration-GUI.ps1
+```
+
+oder einfach **`Start-GUI.cmd` doppelklicken** (startet ohne Konsolenfenster).
+
+Der Assistent führt in vier Schritten durch die Migration:
+
+1. **Anmeldung** – Tenant-API-Keys (Quell- und Ziel-Tenant) oder
+   Partner-/Organisations-API-Key. Key-Typ, identische Tenants und
+   Datenregion werden automatisch geprüft.
+2. **Tenants** – nur beim Partner-Login: Quell- und Ziel-Tenant aus zwei
+   durchsuchbaren Listen wählen.
+3. **Geräte** – zwischen *Server* und *Clients* umschalten, per Suche filtern
+   (Hostname, Betriebssystem, Benutzer) und Geräte per Checkbox markieren
+   („Alle markieren“, „Auswahl aufheben“, mehrere Zeilen + Leertaste).
+4. **Migration** – Zusammenfassung prüfen, starten und den Status pro Gerät
+   live verfolgen: Kennzahlen (erfolgreich / fehlgeschlagen / ausstehend),
+   Fortschrittsbalken, Protokoll, manuelle Statusabfrage und CSV-Export
+   des Ergebnisses.
+
+Alle API-Aufrufe laufen im Hintergrund, die Oberfläche bleibt dabei bedienbar;
+Access-Tokens werden bei längeren Sitzungen automatisch erneuert.
+
+> Hinweis: `Start-GUI.cmd` startet PowerShell mit `-ExecutionPolicy Bypass`,
+> damit das heruntergeladene Skript ohne Änderung der Ausführungsrichtlinie läuft.
+
+## Ablauf (Konsolen-Skript)
 
 Beim Start fragt das Skript nacheinander ab:
 
@@ -32,7 +63,7 @@ Beim Start fragt das Skript nacheinander ab:
    und meldet je Gerät `erfolgreich migriert`, `fehlgeschlagen` oder den
    aktuellen Zwischenstatus, inkl. Zusammenfassung am Ende.
 
-## Verwendung
+## Verwendung (Konsole)
 
 ```powershell
 .\Sophos-DeviceMigration.ps1
@@ -52,8 +83,8 @@ Client-Secrets werden dabei verdeckt eingegeben.
 
 ## Voraussetzungen
 
-- Windows PowerShell 5.1 oder PowerShell 7+
-  (unter PS7 für die GUI-Auswahl das Modul `Microsoft.PowerShell.GraphicalTools`
+- Windows PowerShell 5.1 oder PowerShell 7+ (die grafische Oberfläche
+  benötigt Windows; unter PS7 für die GUI-Auswahl das Modul `Microsoft.PowerShell.GraphicalTools`
   installieren; ohne GUI nutzt das Skript automatisch eine Konsolen-Auswahl).
 - API-Credentials für Quell- **und** Ziel-Tenant (siehe oben) – entweder
   zwei Tenant-Keys oder ein Partner-/Organisations-Key.
@@ -67,3 +98,9 @@ Client-Secrets werden dabei verdeckt eingegeben.
   mit `Strg+C` beendet werden – die Migration läuft serverseitig weiter.
 - Richtlinien/Gruppen werden nicht mitgenommen; die Geräte landen im
   Ziel-Tenant in der Standardkonfiguration (Verhalten der Sophos-API).
+
+## Versionen
+
+Die Änderungen je Version stehen im [CHANGELOG](CHANGELOG.md).
+Fertige Pakete (ZIP mit allen Skripten) gibt es unter
+[Releases](https://github.com/adblocker-1/sophos-api-device-migration/releases).
