@@ -24,6 +24,9 @@
 
 .EXAMPLE
     .\Sophos-DeviceMigration.ps1
+
+.NOTES
+    Version 2.0 - grafische Oberfläche: siehe Sophos-DeviceMigration-GUI.ps1
 #>
 
 [CmdletBinding()]
